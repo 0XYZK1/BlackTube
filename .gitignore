@@ -1,0 +1,31 @@
+# Android / Gradle
+.gradle/
+build/
+local.properties
+keystore.properties
+*.jks
+*.keystore
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local preview material
+pc_user_profile/
+pc_preview_extension/
+legacy-web/
+
+# Local APKs (published ones live in releases/)
+*.apk
+!releases/*.apk
+
+# Internal notes
+PROBLEME.md
+run-on-emulator.ps1

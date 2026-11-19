@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BlackTube</string>
+    <string name="action_home">Home</string>
+    <string name="action_search">Search</string>
+    <string name="action_account">Account</string>
+    <string name="account_sign_in">Sign in</string>
+    <string name="account_signed_in">Account</string>
+
+    <string name="welcome_tagline">Your YouTube. Pure Black.</string>
+    <string name="welcome_bullets">No Shorts. No clutter.\nYour account, subscriptions, and history.</string>
+    <string name="welcome_sign_in">Sign in with YouTube</string>
+    <string name="welcome_skip">Continue without account</string>
+    <string name="welcome_note">Sign-in happens directly on accounts.google.com. BlackTube never sees your password.</string>
+
+    <string name="error_title">No Connection</string>
+    <string name="error_offline">BlackTube couldn\'t reach YouTube. Check your connection and try again.</string>
+    <string name="error_generic">Couldn\'t load YouTube. Please try again.</string>
+    <string name="action_retry">Retry</string>
+
+    <string name="search_title">Search</string>
+    <string name="search_hint">Search videos, channels, playlists…</string>
+    <string name="action_search_go">Search</string>
+    <string name="action_cancel">Cancel</string>
+
+    <string name="account_title">YouTube Account</string>
+    <string name="account_sign_in_info">Sign in with your Google account to access subscriptions, history, playlists, and recommendations.</string>
+    <string name="account_switch">Switch account</string>
+    <string name="account_sign_out">Sign out</string>
+    <string name="account_open_browser">Open in browser</string>
+    <string name="account_close">Close</string>
+    <string name="account_my_channel">My channel</string>
+    <string name="account_playlists">Playlists</string>
+    <string name="account_subscriptions">Subscriptions</string>
+    <string name="account_history">History</string>
+    <string name="account_liked">Liked videos</string>
+    <string name="account_watch_later">Watch Later</string>
+    <string name="account_signed_in_toast">Signed in to YouTube.</string>
+    <string name="account_signin_failed">Sign-in not completed.</string>
+
+    <string name="shorts_blocked">Shorts are disabled in BlackTube.</string>
+    <string name="download_started">Download started</string>
+    <string name="download_failed">Download failed.</string>
+    <string name="no_browser">No app found to open this link.</string>
+</resources>

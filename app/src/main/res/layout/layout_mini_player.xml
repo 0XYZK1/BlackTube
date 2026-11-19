@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/mini_player"
+    android:layout_width="match_parent"
+    android:layout_height="60dp"
+    android:layout_marginStart="10dp"
+    android:layout_marginEnd="10dp"
+    android:layout_marginBottom="6dp"
+    android:background="@drawable/bg_mini_player_pill"
+    android:elevation="6dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="8dp"
+    android:paddingTop="5dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="5dp"
+    android:visibility="gone">
+
+    <FrameLayout
+        android:layout_width="88dp"
+        android:layout_height="50dp"
+        android:background="@drawable/bg_mini_thumb_round"
+        android:clipToOutline="true">
+
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/mini_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/nexus_black"
+            app:resize_mode="zoom"
+            app:show_buffering="never"
+            app:surface_type="texture_view"
+            app:use_controller="false" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="10dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/mini_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/nexus_white"
+            android:textSize="12.5sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/mini_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:text="Playing · Tap to expand"
+            android:textColor="@color/nexus_text_dim"
+            android:textSize="10.5sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/mini_play_pause"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="@drawable/bg_avatar_circle"
+        android:clickable="true"
+        android:contentDescription="Play or Pause"
+        android:focusable="true"
+        android:gravity="center"
+        android:text="❚❚"
+        android:textColor="@color/nexus_white"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/mini_close"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginStart="4dp"
+        android:background="@null"
+        android:clickable="true"
+        android:contentDescription="Close player"
+        android:focusable="true"
+        android:gravity="center"
+        android:text="✕"
+        android:textColor="@color/nexus_text_muted"
+        android:textSize="15sp" />
+</LinearLayout>
