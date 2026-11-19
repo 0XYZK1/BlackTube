@@ -20,7 +20,6 @@ class NexusApp : Application() {
         LocalStore.init(this)
         YtExtractor.init()
 
-        // High-concurrency ImageLoader with aggressive caching so channel avatars load instantly
         val imgDispatcher = Dispatcher().apply {
             maxRequests = 64
             maxRequestsPerHost = 24
@@ -47,7 +46,6 @@ class NexusApp : Application() {
             .build()
         Coil.setImageLoader(imageLoader)
 
-        // Restore the session on app start: WebView cookies survive app updates.
         runCatching {
             CookieManager.getInstance().setAcceptCookie(true)
             if (!Session.isLoggedIn) Session.captureFromWebView()

@@ -8,11 +8,6 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import kotlin.math.min
 
-/**
- * YouTube throttles long single-range requests after the first ~10 second burst.
- * This DataSource splits the stream into 4 MB range chunks (like NewPipe/Grayjay)
- * so playback stays smooth from start to finish.
- */
 class ChunkedYouTubeDataSource(
     private val upstream: DataSource,
     private val chunkSize: Long = 4L * 1024L * 1024L

@@ -32,9 +32,6 @@ object InnerTube {
         cache.clear()
     }
 
-    /**
-     * Live-Suchvorschläge während des Tippens (Autocomplete).
-     */
     fun suggestions(query: String): List<String> {
         val clean = query.trim()
         if (clean.isEmpty()) return emptyList()
@@ -69,10 +66,6 @@ object InnerTube {
         return page
     }
 
-    /**
-     * Lädt zuverlässig alle Playlists des angemeldeten Nutzers – mit mehrstufigem Fallback
-     * über FEplaylists, FElibrary und FEwhat_to_watch, damit Playlists nie leer bleiben.
-     */
     fun userPlaylists(): List<VideoItem> {
         val seen = LinkedHashMap<String, VideoItem>()
         listOf("FEplaylists", "FElibrary").forEach { id ->
@@ -320,9 +313,6 @@ object InnerTube {
         null
     }
 
-    /**
-     * Fügt ein Video direkt zur YouTube-"Später ansehen"-Playlist (WL) des Kontos hinzu.
-     */
     fun addToRemoteWatchLater(videoId: String): Boolean {
         if (!Session.isLoggedIn) return false
         return try {
@@ -340,19 +330,12 @@ object InnerTube {
         }
     }
 
-    /**
-     * Normalizes YouTube avatar URLs to tiny 88px thumbnails so avatars load instantly.
-     */
     private fun fastAvatarUrl(raw: String): String {
         if (raw.isBlank()) return ""
         val normalized = if (raw.startsWith("//")) "https:$raw" else raw
         return normalized.replace(Regex("=s\\d+[^\"'\\s]*$"), "=s88-c-k-c0x00ffffff-no-rj")
     }
 
-    /**
-     * Loads the full channel overview (banner, avatar, handle, subscriber count,
-     * description) plus the channel's Videos tab ("EgZ2aWRlb3PyBgQKAjoA").
-     */
     fun browseChannel(
         channelId: String,
         tab: String = "overview",
@@ -367,7 +350,6 @@ object InnerTube {
                 "videos" -> payload.put("params", "EgZ2aWRlb3PyBgQKAjoA")
                 "playlists" -> payload.put("params", "EglwbGF5bGlzdHPyBgQKAkIA")
                 "live" -> payload.put("params", "EgdzdHJlYW1z8gYECgJ6AA==")
-                // "overview" -> no params = YouTube's official channel home
             }
         }
         val root = post("browse", payload.toString())
@@ -383,7 +365,6 @@ object InnerTube {
 
         if (continuation == null) {
             walk(root) { obj ->
-                // Modern YouTube channel header (pageHeaderViewModel)
                 obj.optJSONObject("pageHeaderViewModel")?.let { hdr ->
                     val t = text(
                         hdr.optJSONObject("title")
@@ -435,7 +416,6 @@ object InnerTube {
                     }
                 }
 
-                // Legacy / metadata fallback
                 obj.optJSONObject("channelMetadataRenderer")?.let { meta ->
                     if (name.isBlank()) name = meta.optString("title")
                     if (description.isBlank()) description = meta.optString("description")
@@ -500,9 +480,6 @@ object InnerTube {
         )
     }
 
-    /**
-     * Fetches the full YouTube Channel "About / More Info" details.
-     */
     fun channelAbout(channelId: String): ChannelAboutInfo {
         val payload = JSONObject()
             .put("context", contextObject())
@@ -581,16 +558,12 @@ object InnerTube {
         }.getOrDefault(false)
     }
 
-    /**
-     * Fetches recent + older YouTube notifications (multi-page) and merges them
-     * with the local cache so nothing disappears after a refresh.
-     */
     fun notifications(): List<NotificationItem> {
         if (!Session.isLoggedIn) return LocalStore.getCachedNotifications()
         val out = LinkedHashMap<String, NotificationItem>()
         var token: String? = null
 
-        for (pageIdx in 0 until 4) { // recent + older notifications (up to ~60 items)
+        for (pageIdx in 0 until 4) {
             val payload = JSONObject().put("context", contextObject())
             if (token == null) {
                 payload.put(
@@ -611,7 +584,6 @@ object InnerTube {
                     val msg = text(n.opt("shortMessage")).ifBlank { text(n.opt("title")) }
                     if (msg.isBlank()) return@let
 
-                    // Deep-extract videoId even for comment reply notifications
                     var vid = ""
                     walk(n.opt("navigationEndpoint")) { nav ->
                         if (vid.isBlank()) {
@@ -636,7 +608,6 @@ object InnerTube {
                     )
                 }
                 if (nextToken == null) {
-                    // Capture BOTH modern and legacy notification pagination tokens
                     val c1 = obj.optJSONObject("nextContinuationData")
                         ?.optString("continuation")
                     val c2 = obj.optJSONObject("continuationItemRenderer")
@@ -653,14 +624,10 @@ object InnerTube {
         return LocalStore.mergeAndGetNotifications(out.values.toList())
     }
 
-    /**
-     * Syncs the real liked count and watch time from the YouTube account
-     * (uses YouTube's red progress bar for history entries).
-     */
     fun syncAccountWatchStats(): AccountSyncStats {
         if (!Session.isLoggedIn) return LocalStore.getSyncedAccountStats()
+        // watch time gibt's nur ueber die rote leiste im verlauf, alles andere ist raten
 
-        // A) Total liked videos from the VLLL header
         var likedTotal = 0
         runCatching {
             val likedRoot = post("browse", body(browseId = "VLLL"))
@@ -684,7 +651,6 @@ object InnerTube {
             }
         }
 
-        // B) Watch history: sum duration * (percentWatched / 100), up to 4 pages
         var totalWatchSec = 0L
         var historyCount = 0
         var token: String? = null
@@ -716,9 +682,6 @@ object InnerTube {
         }
     }
 
-    /**
-     * Lists all subscribed channels (for the Smart Subscription Manager).
-     */
     fun subscribedChannels(): List<SubscribedChannel> {
         if (!Session.isLoggedIn) return emptyList()
         val channels = LinkedHashMap<String, SubscribedChannel>()
@@ -757,7 +720,6 @@ object InnerTube {
                     }
                 }
 
-                // Modern channel lockups (subscriptions grid / search)
                 obj.optJSONObject("lockupViewModel")?.let { lk ->
                     val cid = lk.optString("contentId")
                     if (cid.startsWith("UC")) {
@@ -799,9 +761,6 @@ object InnerTube {
         return channels.values.toList()
     }
 
-    /**
-     * Removes a like on YouTube (used by Bulk Unlike).
-     */
     fun removeLike(videoId: String): Boolean {
         if (!Session.isLoggedIn || videoId.isBlank()) return false
         return runCatching {
@@ -910,7 +869,6 @@ object InnerTube {
         val hiddenIds = LocalStore.getHiddenIds()
 
         walk(root) { obj ->
-            // Shorts strikt verwerfen
             if (obj.has("shortsLockupViewModel") || obj.has("reelItemRenderer")) return@walk
 
             obj.optJSONObject("lockupViewModel")?.let { lockup ->
@@ -1171,9 +1129,6 @@ object InnerTube {
         )
     }
 
-    /**
-     * Reads YouTube's "resume playback" red progress bar (0..100) from any renderer.
-     */
     private fun parseResumePercent(v: JSONObject): Int {
         var result = 0
         walk(v) { obj ->

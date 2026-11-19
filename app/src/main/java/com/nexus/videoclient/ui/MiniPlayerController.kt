@@ -10,9 +10,6 @@ import com.nexus.videoclient.R
 import com.nexus.videoclient.playback.PlaybackService
 import com.nexus.videoclient.playback.PlaybackSession
 
-/**
- * Persistent mini player shown on every screen (Home, Search, Channel, List).
- */
 class MiniPlayerController(private val activity: Activity) {
 
     private val root: View? = activity.findViewById(R.id.mini_player)

@@ -18,8 +18,8 @@ android {
         applicationId "com.nexus.blacktube"
         minSdk 26
         targetSdk 34
-        versionCode 20
-        versionName "2.10.0"
+        versionCode 21
+        versionName "2.10.1"
     }
 
     signingConfigs {
@@ -70,29 +70,29 @@ dependencies {
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
     implementation 'com.google.android.material:material:1.12.0'
 
-    // Netzwerk + Bilder (inkl. CircleCrop)
+    // netzwerk + bilder
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'io.coil-kt:coil:2.7.0'
 
-    // Native Wiedergabe (100% werbefrei)
+    // player
     implementation 'androidx.media3:media3-exoplayer:1.4.1'
     implementation 'androidx.media3:media3-ui:1.4.1'
     implementation 'androidx.media3:media3-datasource:1.4.1'
     implementation 'androidx.media3:media3-datasource-okhttp:1.4.1'
 
-    // HLS-Support für YouTube Livestreams
+    // live streams
     implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
 
-    // Native LAME encoder for real MP3 export (arm64-v8a + armeabi-v7a + x86)
+    // mp3 export
     implementation('com.github.naman14:TAndroidLame:1.1') {
-        // The old POM pulls in legacy com.android.support artifacts that clash with AndroidX
+        // das alte pom zieht support-libs rein, die mit androidx kollidieren
         transitive = false
     }
 
-    // Stream-Auflösung (n-sig, PO-Token, Original-Audiospur-Erkennung)
+    // streams aufloesen (n-sig, po-token, original audio)
     implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.27.1'
 
-    // Native Google Cast (Geräte in der Nähe wie in YouTube)
+    // chromecast
     implementation 'com.google.android.gms:play-services-cast-framework:21.5.0'
     implementation 'androidx.mediarouter:mediarouter:1.7.0'
 }

@@ -4,10 +4,6 @@ import android.content.Context
 import android.util.AttributeSet
 import android.widget.FrameLayout
 
-/**
- * Erzwingt ein festes 16:9-Seitenverhältnis schon VOR dem Laden des Thumbnails.
- * Dadurch springt oder klappt beim schnellen Scrollen kein einziges Video mehr auf!
- */
 class AspectRatioFrameLayout16by9 @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,

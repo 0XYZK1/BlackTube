@@ -46,10 +46,8 @@ object Session {
 
     val isLoggedIn: Boolean
         get() {
-            // Google setzt je nach Gerät/Konto unterschiedliche Cookie-Varianten.
-            // Vorher wurde nur "SAPISID=" geprüft – auf Pixel/neuen Konten fehlt der
-            // Cookie oft, dadurch galt eine gültige Sitzung als "abgemeldet".
             val map = cookieMap()
+            // neue konten haben oft nur __Secure-3PAPISID, aeltere nur SAPISID
             val sapisid = map["__Secure-3PAPISID"]
                 ?: map["SAPISID"]
                 ?: map["__Secure-1PAPISID"]

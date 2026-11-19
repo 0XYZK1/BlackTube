@@ -47,10 +47,6 @@ data class Resolved(
             .distinct()
             .sortedDescending()
 
-    /**
-     * Alle verfügbaren Audiospuren gruppiert (Originalsprache steht immer an erster Stelle,
-     * KI-Synchronisationen sind ganz hinten und werden niemals automatisch gewählt).
-     */
     val distinctAudioTracks: List<StreamChoice>
         get() = audio
             .sortedWith(
@@ -75,13 +71,9 @@ data class Resolved(
         videoOnly.filter { it.height in 1..maxHeight }.maxByOrNull { it.height }
             ?: videoOnly.maxByOrNull { it.height }
 
-    /**
-     * Wählt garantiert die ORIGINAL-Audiospur und blockiert YouTube Auto-Dubbing / KI-Synchro.
-     */
     fun bestOriginalAudio(preferredTrackKey: String? = null): StreamChoice? {
         if (audio.isEmpty()) return null
 
-        // HARDBLOCK: Never pick a dubbed / auto-translated track!
         val nonDubbed = audio.filterNot { it.isDubbedAudio }
         val pool = nonDubbed.ifEmpty { audio }
 
@@ -121,7 +113,6 @@ object YtExtractor {
         if (ready) return
         synchronized(this) {
             if (ready) return
-            // Neutral initialisieren, damit YouTube keine erzwungene lokalisierte Synchro ausliefert
             NewPipe.init(DownloaderImpl(), Localization("en", "US"))
             ready = true
         }
@@ -175,6 +166,7 @@ object YtExtractor {
         }
 
         val rawAudio = info.audioStreams
+        // auto-dubs kommen als eigene spur rein, die fliegen hier raus
         val hasExplicitOriginal = rawAudio.any { isExplicitOriginalTrack(it) }
 
         val audio = rawAudio.mapNotNull { stream ->
@@ -232,9 +224,6 @@ object YtExtractor {
         )
     }
 
-    /**
-     * Prüft, ob die Audiospur die echte Originalspur des Creators ist.
-     */
     private fun isExplicitOriginalTrack(stream: AudioStream): Boolean {
         if (stream.audioTrackType == AudioTrackType.ORIGINAL) return true
         val name = stream.audioTrackName.orEmpty().lowercase()
@@ -247,9 +236,6 @@ object YtExtractor {
             id.endsWith(".10")
     }
 
-    /**
-     * Erkennt YouTubes automatische KI-Synchronisation / Dubbed Tracks zuverlässig.
-     */
     private fun isDubbedTrack(stream: AudioStream, videoHasExplicitOriginal: Boolean): Boolean {
         if (stream.audioTrackType == AudioTrackType.DUBBED) return true
         if (stream.audioTrackType == AudioTrackType.DESCRIPTIVE) return true
@@ -267,7 +253,6 @@ object YtExtractor {
         ) {
             return true
         }
-        // If the video has an explicit original track, every non-original track is a dub
         if (videoHasExplicitOriginal && !isExplicitOriginalTrack(stream)) return true
         return false
     }

@@ -13,7 +13,7 @@ data class VideoItem(
     val isLive: Boolean = false,
     val isChannel: Boolean = false,
     val avatar: String = "",
-    val percentWatched: Int = 0 // YouTube's red progress bar (0..100)
+    val percentWatched: Int = 0
 ) {
     val watchUrl: String
         get() = when {
@@ -44,7 +44,7 @@ data class ChannelAboutInfo(
     val videoCount: String = "",
     val country: String = "",
     val canonicalUrl: String = "",
-    val links: List<Pair<String, String>> = emptyList() // Title -> URL
+    val links: List<Pair<String, String>> = emptyList()
 )
 
 data class Page(val items: List<VideoItem>, val continuation: String?)

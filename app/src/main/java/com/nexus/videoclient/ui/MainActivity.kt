@@ -56,7 +56,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var libraryPanel: View
     private lateinit var avatar: ImageView
 
-    // Sortiertes Profil / Bibliothek
     private lateinit var profileAvatarLarge: ImageView
     private lateinit var profileNameView: TextView
     private lateinit var profileStatusView: TextView
@@ -64,7 +63,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var playlistsCarousel: LinearLayout
     private lateinit var playlistsEmptyHint: TextView
 
-    // Animiertes Fullscreen-Such-Overlay (mit Live-Vorschlägen & Suchverlauf)
     private lateinit var searchOverlay: View
     private lateinit var searchInput: EditText
     private lateinit var searchClearBtn: View
@@ -73,7 +71,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchClearHistoryBtn: TextView
     private var suggestJob: Job? = null
 
-    // Mini-Player (persistent on every screen)
     private lateinit var miniPlayerController: MiniPlayerController
 
     private var tab = Tab.HOME
@@ -99,7 +96,6 @@ class MainActivity : AppCompatActivity() {
         avatar = findViewById(R.id.account_avatar)
         avatar.makeCircular()
 
-        // Profil-Karten-Elemente
         profileAvatarLarge = findViewById(R.id.profile_avatar_large)
         profileAvatarLarge.makeCircular()
         profileNameView = findViewById(R.id.profile_name)
@@ -108,7 +104,6 @@ class MainActivity : AppCompatActivity() {
         playlistsCarousel = findViewById(R.id.playlists_carousel)
         playlistsEmptyHint = findViewById(R.id.playlists_empty_hint)
 
-        // Such-Overlay
         searchOverlay = findViewById(R.id.search_overlay)
         searchInput = findViewById(R.id.search_input)
         searchClearBtn = findViewById(R.id.btn_search_clear)
@@ -117,7 +112,6 @@ class MainActivity : AppCompatActivity() {
         searchClearHistoryBtn = findViewById(R.id.btn_clear_search_history)
         setupSearchOverlay()
 
-        // Mini-Player
         miniPlayerController = MiniPlayerController(this)
 
         findViewById<View>(R.id.btn_notifications).setOnClickListener {
@@ -144,7 +138,6 @@ class MainActivity : AppCompatActivity() {
         })
 
         findViewById<View>(R.id.btn_search).setOnClickListener { openSearchOverlay() }
-        // Oben rechts auf das runde Profilbild tippen -> direkt in den sortierten Profil-Bereich!
         findViewById<View>(R.id.btn_account).setOnClickListener { selectTab(Tab.LIBRARY) }
 
         emptyAction.setOnClickListener {
@@ -220,10 +213,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Holt eine noch gültige YouTube-Sitzung aus dem WebView-Cookie-Speicher zurück,
-     * bevor die Anmelde-Aufforderung gezeigt wird.
-     */
     private fun restoreSessionIfPossible() {
         if (Session.isLoggedIn) return
         runCatching { Session.captureFromWebView() }
@@ -234,8 +223,6 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         handleIntent(intent)
     }
-
-    // ------------------------------------------------------------- Mini-Player
 
     override fun onStart() {
         super.onStart()
@@ -255,8 +242,6 @@ class MainActivity : AppCompatActivity() {
         }
         super.onDestroy()
     }
-
-    // --------------------------------------------------------- Fullscreen-Suche
 
     private fun setupSearchOverlay() {
         findViewById<View>(R.id.btn_search_back).setOnClickListener { closeSearchOverlay() }
@@ -396,8 +381,6 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    // --------------------------------------------------------- Tabs & Profil
-
     private fun updateTabVisuals(next: Tab) {
         val entries = listOf(
             Triple(R.id.tab_home, R.id.tab_home_icon, R.id.tab_home_label) to Tab.HOME,
@@ -426,8 +409,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
-    // -------------------------------------------------- Smart account tools
 
     private fun showBulkUnsubscribeSheet() {
         if (!Session.isLoggedIn) {
@@ -902,7 +883,6 @@ class MainActivity : AppCompatActivity() {
                     true
                 )
             } else {
-                // Guest mode on Home: load a clean starter feed
                 loadGuestHomeFeed()
             }
             return
@@ -1088,8 +1068,6 @@ class MainActivity : AppCompatActivity() {
         emptyView.visibility = View.VISIBLE
     }
 
-    // ---------------------------------------------------------------- Account
-
     private fun loadAccount() {
         if (!Session.isLoggedIn) {
             avatar.setImageDrawable(null)
@@ -1119,7 +1097,6 @@ class MainActivity : AppCompatActivity() {
             if (tab == Tab.LIBRARY) refreshProfileDashboard()
         }
 
-        // Background check for unread notifications -> bell badge dot
         lifecycleScope.launch {
             val hasUnread = withContext(Dispatchers.IO) {
                 runCatching { InnerTube.notifications().any { it.unread } }
@@ -1204,8 +1181,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
     }
-
-    // ------------------------------------------------------------------ Intents
 
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return

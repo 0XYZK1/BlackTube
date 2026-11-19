@@ -34,7 +34,6 @@ class LoginActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Sitzung ist noch gültig: gar nicht erst nach dem Passwort fragen.
         if (Session.isLoggedIn) {
             setResult(RESULT_OK)
             finish()
@@ -231,7 +230,6 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private companion object {
-        // Shows saved Google accounts as a 1-tap list
         const val START_URL =
             "https://accounts.google.com/AccountChooser?service=youtube&hl=en" +
                 "&continue=https%3A%2F%2Fm.youtube.com%2F"

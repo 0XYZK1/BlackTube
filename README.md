@@ -95,7 +95,7 @@ you sign in.
 
 ## INSTALL
 
-1. Download the latest **`BlackTube-2.10.0.apk`** from
+1. Download the latest **`BlackTube-2.10.1.apk`** from
    [Releases](https://github.com/0XYZK1/BlackTube/releases/latest).
 2. Open the file on your phone.
 3. Allow installation from unknown sources for your file manager when Android

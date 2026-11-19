@@ -108,7 +108,6 @@ class ListActivity : AppCompatActivity() {
         load(true)
     }
 
-    // Lifecycle for the persistent mini player
     override fun onStart() {
         super.onStart()
         miniPlayerController.onStart()
@@ -123,7 +122,6 @@ class ListActivity : AppCompatActivity() {
         if (loading) return
         if (!first && continuation == null) return
 
-        // Show local lists instantly when not signed in
         if (first && !Session.isLoggedIn && mode == MODE_BROWSE) {
             val localItems = when (browseId) {
                 "VLWL" -> LocalStore.getWatchLater()
@@ -183,7 +181,6 @@ class ListActivity : AppCompatActivity() {
 
             result.onSuccess { page: Page ->
                 continuation = page.continuation
-                // Prepend local entries (Watch Later / Favorites / History)
                 val combined = if (first) mergeWithLocal(page.items) else page.items
                 adapter.submit(combined, !first)
                 if (first) bindPlaylistHeaderIfNeeded(combined)
@@ -236,7 +233,6 @@ class ListActivity : AppCompatActivity() {
             descView.visibility = View.VISIBLE
             descView.text = h.description
         }
-        // Tapping the description opens the full "More info" channel sheet
         descView.setOnClickListener { showChannelAboutSheet() }
 
         channelSubscribed = h.isSubscribed
@@ -403,8 +399,6 @@ class ListActivity : AppCompatActivity() {
         return map.values.toList()
     }
 
-    // ---------------------------------------------------- Channel tabs
-
     private fun setupChannelTabs() {
         val tabs = listOf(
             R.id.ch_tab_overview to "overview",
@@ -435,8 +429,6 @@ class ListActivity : AppCompatActivity() {
             }
         }
     }
-
-    // ---------------------------------------------------- Search filters
 
     private fun setupSearchFilters() {
         val bar = findViewById<View>(R.id.search_filters_bar)
@@ -489,8 +481,6 @@ class ListActivity : AppCompatActivity() {
         }
         renderChips()
     }
-
-    // ---------------------------------------------------- Playlist header
 
     private fun bindPlaylistHeaderIfNeeded(items: List<VideoItem>) {
         val isPlaylistScreen = mode == MODE_BROWSE &&
@@ -550,7 +540,6 @@ class ListActivity : AppCompatActivity() {
             return
         }
 
-        // Clicking a video on a playlist screen queues the remaining videos
         val isPlaylistScreen = mode == MODE_BROWSE &&
             (browseId.startsWith("VL") || browseId == "FEhistory")
         if (isPlaylistScreen) {

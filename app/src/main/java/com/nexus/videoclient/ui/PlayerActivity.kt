@@ -131,7 +131,6 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var commentsToggle: TextView
     private lateinit var btnFullscreen: ImageButton
 
-    // YouTube-Style Double-Tap Ripple Overlays (Links & Rechts)
     private lateinit var skipLeftOverlay: View
     private lateinit var skipLeftText: TextView
     private lateinit var skipRightOverlay: View
@@ -139,7 +138,6 @@ class PlayerActivity : AppCompatActivity() {
     private var accumulatedSkipSec = 0
     private var lastSkipSide = 0 // -1 links, +1 rechts
 
-    // Seitliche HUDs: Links Helligkeit, Rechts Lautstärke
     private lateinit var hudBrightnessLeft: View
     private lateinit var hudBrightnessBar: ProgressBar
     private lateinit var hudBrightnessText: TextView
@@ -172,7 +170,6 @@ class PlayerActivity : AppCompatActivity() {
     private var watchChannelSubscribed = false
     private val uiHandler = Handler(Looper.getMainLooper())
 
-    // Google Cast
     private var castContext: com.google.android.gms.cast.framework.CastContext? = null
     private var mediaRouter: androidx.mediarouter.media.MediaRouter? = null
     private var lastRelated: List<VideoItem> = emptyList()
@@ -236,7 +233,6 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    // Live watch time tracker (runs every 5s while playing)
     private val watchTimeRunnable = object : Runnable {
         override fun run() {
             if (this@PlayerActivity::player.isInitialized && player.isPlaying) {
@@ -246,7 +242,6 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    // Touch & Gesten
     private var touchDownX = 0f
     private var touchDownY = 0f
     private var touchDownAt = 0L
@@ -284,8 +279,6 @@ class PlayerActivity : AppCompatActivity() {
         override fun onPlayerError(error: PlaybackException) {
             progress.visibility = View.GONE
             val currentPos = player.currentPosition.coerceAtLeast(0L)
-            // Falls die gemergte DASH-Spur (1080p) abbricht, sofort nahtlos an derselben Sekunde
-            // auf die stabile Progressive-MP4-Spur wechseln!
             if (!fallbackTried && usedAdaptive) {
                 fallbackTried = true
                 val fallback = streams?.bestProgressive(720)
@@ -339,13 +332,11 @@ class PlayerActivity : AppCompatActivity() {
         commentsHeader = findViewById(R.id.comments_header)
         commentsToggle = findViewById(R.id.comments_toggle)
 
-        // YouTube-Skip-Ripples
         skipLeftOverlay = findViewById(R.id.skip_left_overlay)
         skipLeftText = findViewById(R.id.skip_left_text)
         skipRightOverlay = findViewById(R.id.skip_right_overlay)
         skipRightText = findViewById(R.id.skip_right_text)
 
-        // Seitliche HUDs
         hudBrightnessLeft = findViewById(R.id.hud_brightness_left)
         hudBrightnessBar = findViewById(R.id.hud_brightness_bar)
         hudBrightnessText = findViewById(R.id.hud_brightness_text)
@@ -353,13 +344,12 @@ class PlayerActivity : AppCompatActivity() {
         hudVolumeBar = findViewById(R.id.hud_volume_bar)
         hudVolumeText = findViewById(R.id.hud_volume_text)
 
-        // Video-Container im Portrait-Modus fest auf 16:9 setzen, damit nichts springt
         setPortrait16by9Height()
 
         titleView.text = intent.getStringExtra(EXTRA_TITLE).orEmpty()
 
-        // Großer, stabiler Buffer gegen "Spielt - bricht ab - spielt - bricht ab"
         val shared = PlaybackSession.player
+        // der puffer ist absichtlich fett, sonst bleibt 1080p auf mobilfunk stehen
         player = shared ?: ExoPlayer.Builder(this)
             .setLoadControl(
                 DefaultLoadControl.Builder()
@@ -391,8 +381,6 @@ class PlayerActivity : AppCompatActivity() {
         initGoogleCast()
         uiHandler.postDelayed(watchTimeRunnable, 5_000L)
 
-        // Unten rechts in der media3-Leiste: Cast | Pop-Out | Zahnrad | Vollbild
-        // (media3-eigene Duplikate für Settings/Vollbild werden entfernt)
         installCustomControls()
 
         qualityButton.setOnClickListener { showSettingsSheet() }
@@ -534,9 +522,6 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Keeps the media3 prev/next buttons visually in sync with the inline queue.
-     */
     private fun updateSkipButtons() {
         runCatching {
             playerView.findViewById<View>(androidx.media3.ui.R.id.exo_next)
@@ -559,8 +544,6 @@ class PlayerActivity : AppCompatActivity() {
         }
         videoContainer.requestLayout()
     }
-
-    // ------------------------------------------------------------------ Laden
 
     private fun load(resumeFromMs: Long = 0L) {
         progress.visibility = View.VISIBLE
@@ -697,8 +680,6 @@ class PlayerActivity : AppCompatActivity() {
         descToggle.text = if (descriptionExpanded) "Show less" else "Show more"
     }
 
-    // --------------------------------------------------------------- Vorschläge
-
     private fun renderRelated(items: List<VideoItem>) {
         relatedContainer.removeAllViews()
         if (items.isEmpty()) {
@@ -798,8 +779,6 @@ class PlayerActivity : AppCompatActivity() {
         commentsToggle.text = if (commentsCollapsed) "Show" else "Hide"
     }
 
-    // --------------------------------------------- Smooth Swipe-Down & Mini-Player
-
     private fun animateAndMinimize() {
         if (fullscreen) {
             setFullscreenState(false)
@@ -842,10 +821,8 @@ class PlayerActivity : AppCompatActivity() {
         }
         finish()
         @Suppress("DEPRECATION")
-        overridePendingTransition(0, 0) // Zero black flash!
+        overridePendingTransition(0, 0) // kein schwarzes aufblitzen
     }
-
-    // --------------------------------------------------- Pop-Out (PiP) & Cast
 
     private fun enterPipManual() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -871,9 +848,6 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * OLED-black Cast device picker: nearby devices -> tap -> stream starts.
-     */
     private fun showCastSheet() {
         val ctx = castContext
         val router = mediaRouter
@@ -1080,8 +1054,6 @@ class PlayerActivity : AppCompatActivity() {
         toast("Casting to ${session.castDevice?.friendlyName ?: "device"}")
     }
 
-    // --------------------------------------------------------------- Vollbild
-
     private fun toggleFullscreen() {
         setFullscreenState(!fullscreen)
     }
@@ -1127,7 +1099,6 @@ class PlayerActivity : AppCompatActivity() {
             toast("Loading channel…")
             return
         }
-        // Keep playback active so the Mini-Player stays visible on the Channel page!
         if (this::player.isInitialized && player.mediaItemCount > 0) {
             PlaybackSession.activate(videoId, titleView.text.toString(), watchChannelName)
         }
@@ -1145,8 +1116,6 @@ class PlayerActivity : AppCompatActivity() {
         startActivity(intent)
         finish()
     }
-
-    // ---------------------------------------------- Gesten, HUD & Swipe-Down
 
     private fun setupGestures() {
         playerView.setOnTouchListener { view, event ->
@@ -1168,11 +1137,9 @@ class PlayerActivity : AppCompatActivity() {
                     if (gestureMode == GESTURE_NONE) {
                         if (abs(dy) > touchSlop && abs(dy) > abs(dx) * 1.2f) {
                             gestureMode = if (!fullscreen && dy > 0) {
-                                // Portrait swipe down -> minimize the whole screen!
                                 enableSwipeTransparency()
                                 GESTURE_SWIPE_MINIMIZE
                             } else {
-                                // Vertical swipe -> brightness (left) / volume (right)
                                 GESTURE_VERTICAL_HUD
                             }
                         } else if (abs(dx) > touchSlop && abs(dx) > abs(dy)) {
@@ -1182,8 +1149,6 @@ class PlayerActivity : AppCompatActivity() {
 
                     when (gestureMode) {
                         GESTURE_SWIPE_MINIMIZE -> {
-                            // Ganzes Player-Root-Layout verschieben, damit das Video NIEMALS
-                            // unter die Like-/Dislike-Leiste rutscht!
                             val drag = dy.coerceAtLeast(0f)
                             val progressFraction = (drag / (resources.displayMetrics.heightPixels * 0.55f))
                                 .coerceIn(0f, 1f)
@@ -1198,11 +1163,9 @@ class PlayerActivity : AppCompatActivity() {
                             val delta = lastMoveY - event.rawY
                             val height = view.height.coerceAtLeast(1)
                             if (touchDownX < view.width / 2f) {
-                                // Links: Helligkeit (HUD links am Rand)
                                 applyBrightness(brightnessLevel + (delta / height) * 1.25f)
                                 lastMoveY = event.rawY
                             } else {
-                                // Rechts: Lautstärke (HUD rechts am Rand)
                                 adjustVolumeSmooth(delta / height)
                                 lastMoveY = event.rawY
                             }
@@ -1220,7 +1183,6 @@ class PlayerActivity : AppCompatActivity() {
                             if (dy > dp(105) || (dy > dp(55) && elapsed < 260)) {
                                 animateAndMinimize()
                             } else {
-                                // Snap back smoothly
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                     runCatching { setTranslucent(false) }
                                 }
@@ -1266,13 +1228,6 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    // ------------------------------------------- Icons in die Player-Leiste
-
-    /**
-     * Baut Cast, Pop-Out, Zahnrad und Vollbild direkt in die vorhandene
-     * media3-Control-Leiste ein (gleiche Höhe/Abstände, kein Schweben mehr).
-     * Die media3-Duplikate (Settings, Vollbild) fliegen dafür raus.
-     */
     private fun installCustomControls() {
         playerView.post {
             runCatching {
@@ -1280,7 +1235,6 @@ class PlayerActivity : AppCompatActivity() {
                     androidx.media3.ui.R.id.exo_basic_controls
                 ) ?: return@post
 
-                // media3-eigene Settings-/Vollbild-Buttons entfernen (sonst 2x Zahnrad)
                 playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.let {
                     (it.parent as? ViewGroup)?.removeView(it)
                 }
@@ -1340,10 +1294,6 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Echtes YouTube-Doppeltipp-Skippen mit halbrundem Ripple-Bogen links/rechts
-     * und hochzählenden Sekunden (+10s, +20s, +30s).
-     */
     private fun triggerYouTubeSkip(leftSide: Boolean) {
         if (!this::player.isInitialized) return
         val side = if (leftSide) -1 else 1
@@ -1537,8 +1487,6 @@ class PlayerActivity : AppCompatActivity() {
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
 
-    // -------------------------------------------------------------- Kommentare
-
     private fun loadComments() {
         val token = commentToken ?: return
         if (commentsLoading) return
@@ -1641,8 +1589,6 @@ class PlayerActivity : AppCompatActivity() {
         commentsContainer.addView(view)
     }
 
-    // -------------------------------------------------------------- Wiedergabe
-
     private fun play(startPositionMs: Long? = null) {
         val resolved = streams ?: return
         val position = startPositionMs
@@ -1697,8 +1643,6 @@ class PlayerActivity : AppCompatActivity() {
         val audio = resolved.bestOriginalAudio(selectedAudioKey)
         val progressive = resolved.bestProgressive(maxHeight)
 
-        // ALWAYS merge adaptive video + hard-filtered ORIGINAL audio so YouTube's
-        // baked-in progressive AI auto-dubbing can NEVER play.
         return when {
             adaptive != null && audio != null ->
                 ChosenSource(
@@ -1743,8 +1687,6 @@ class PlayerActivity : AppCompatActivity() {
             .retryOnConnectionFailure(true)
             .build()
     }
-
-    // ----------------------------------------- Cleanes Zahnrad-Bottom-Sheet
 
     private fun renderInlineQueue() {
         val card = findViewById<View>(R.id.inline_queue_card)
@@ -1853,7 +1795,6 @@ class PlayerActivity : AppCompatActivity() {
         rv.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
         rv.adapter = queueAdapter
 
-        // Swipe left or right to remove from the queue!
         androidx.recyclerview.widget.ItemTouchHelper(object :
             androidx.recyclerview.widget.ItemTouchHelper.SimpleCallback(
                 0,
@@ -2038,7 +1979,6 @@ class PlayerActivity : AppCompatActivity() {
             })
         }
 
-        // 1. AUFLÖSUNG
         addSectionTitle("VIDEO QUALITY")
         val qualityRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2072,7 +2012,6 @@ class PlayerActivity : AppCompatActivity() {
         }
         root.addView(qualityScroll)
 
-        // 2. GESCHWINDIGKEIT
         addSectionTitle("PLAYBACK SPEED")
         val speedRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2110,7 +2049,6 @@ class PlayerActivity : AppCompatActivity() {
         }
         root.addView(speedScroll)
 
-        // 3. AUDIOSPUR / SPRACHE (Originalton immer Standard!)
         addSectionTitle("AUDIO TRACK (ORIGINAL DEFAULT)")
         val tracks = resolved.distinctAudioTracks
         tracks.forEach { track ->
@@ -2149,11 +2087,8 @@ class PlayerActivity : AppCompatActivity() {
         }
         dialog.setContentView(scrollWrapper)
         dialog.show()
-        // Im Vollbild sofort zu 100 % offen aufklappen (kein Hochziehen nötig!)
         expandBottomSheetFully(dialog)
     }
-
-    // -------------------------------------------------------------- Downloads
 
     private fun downloadVideo() {
         val resolved = streams ?: run {
@@ -2285,7 +2220,6 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun pickMp3Source(resolved: Resolved): StreamChoice? {
-        // Prefer the original, non-dubbed AAC stream (best decoder compatibility)
         val pool = resolved.audio.filter { !it.isDubbedAudio }
         return pool.filter { it.mime.contains("mp4") }.maxByOrNull { it.bitrate }
             ?: pool.maxByOrNull { it.bitrate }
@@ -2355,8 +2289,6 @@ class PlayerActivity : AppCompatActivity() {
             .putExtra(Intent.EXTRA_TEXT, "https://youtu.be/$videoId")
         runCatching { startActivity(Intent.createChooser(send, "Share video")) }
     }
-
-    // ------------------------------------------------------------- Lifecycle
 
     private fun pipParams(autoEnter: Boolean): PictureInPictureParams {
         val builder = PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9))

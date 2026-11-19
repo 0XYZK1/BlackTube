@@ -119,7 +119,6 @@ class VideoAdapter(
                 }
             }
 
-            // Dezente Press-Scale-Animation
             itemView.setOnClickListener { v ->
                 v.animate().scaleX(0.985f).scaleY(0.985f).setDuration(70).withEndAction {
                     v.animate().scaleX(1f).scaleY(1f).setDuration(90).start()

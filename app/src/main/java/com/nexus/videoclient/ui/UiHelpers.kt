@@ -19,9 +19,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * Erzwingt einen exakt kreisrunden Ausschnitt für jedes ImageView (kein eckiger Kasten mehr).
- */
 fun View.makeCircular() {
     clipToOutline = true
     outlineProvider = object : ViewOutlineProvider() {
@@ -34,9 +31,6 @@ fun View.makeCircular() {
     }
 }
 
-/**
- * Sauberes OLED-Bottom-Sheet für das 3-Punkte-Menü (`⋮`) neben jedem Video.
- */
 fun showVideoOptionsSheet(
     context: Context,
     scope: CoroutineScope,
@@ -54,7 +48,6 @@ fun showVideoOptionsSheet(
         setPadding(dp(18), dp(14), dp(18), dp(24))
     }
 
-    // Kleiner Drag-Handle oben
     val handle = View(context).apply {
         setBackgroundResource(R.drawable.bg_account_pill)
         layoutParams = LinearLayout.LayoutParams(dp(38), dp(4)).apply {

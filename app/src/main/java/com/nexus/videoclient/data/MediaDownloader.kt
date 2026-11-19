@@ -22,11 +22,6 @@ import java.nio.ByteBuffer
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * Lädt MP4 (mit Ton) und Audio (.m4a/.mp3-kompatibel) herunter und zeigt den Fortschritt
- * UND den fertigen Speicherort ("Downloads/BlackTube/...") direkt oben in der
- * Android-Kommandozentrale (Benachrichtigungsleiste) an!
- */
 object MediaDownloader {
 
     private const val CHANNEL_ID = "blacktube_downloads"
@@ -40,10 +35,6 @@ object MediaDownloader {
 
     data class SavedDownload(val fileName: String, val folderPath: String, val uri: Uri?)
 
-    /**
-     * Lädt entweder direkt eine progressive MP4 oder muxt Video+Audio zu einer MP4
-     * (mit automatischem Fallback auf die progressive Spur, damit MP4-Downloads NIE fehlschlagen).
-     */
     fun downloadVideoWithNotification(
         context: Context,
         video: StreamChoice?,
@@ -67,7 +58,6 @@ object MediaDownloader {
 
         try {
             updateProgress(0)
-            // Falls Video+Audio getrennt vorliegen -> herunterladen & muxen
             if (video != null && audio != null && video.videoOnly) {
                 try {
                     fetch(video.url, videoFile, 0, 68, ::updateProgress)
@@ -81,7 +71,6 @@ object MediaDownloader {
                     showCompletedNotification(context, notifId, finalName, uri, mime)
                     return SavedDownload(finalName, "Downloads/BlackTube/$finalName", uri)
                 } catch (_: Exception) {
-                    // Fallback auf progressive MP4, falls der Hardware-Muxer den Codec ablehnt
                     if (progressiveFallback == null) throw IllegalStateException("Muxing fehlgeschlagen")
                 }
             }
@@ -104,9 +93,6 @@ object MediaDownloader {
         }
     }
 
-    /**
-     * Lädt die Original-Audiospur mit Live-Benachrichtigung oben in der Kommandozentrale herunter.
-     */
     fun downloadAudioWithNotification(
         context: Context,
         audio: StreamChoice,
@@ -141,9 +127,6 @@ object MediaDownloader {
         }
     }
 
-    /**
-     * Downloads the best audio track and converts it to a real MP3 (LAME, local).
-     */
     fun downloadAudioAsMp3WithNotification(
         context: Context,
         audio: StreamChoice,
@@ -193,8 +176,6 @@ object MediaDownloader {
             mp3File.delete()
         }
     }
-
-    // --------------------------------------------------- Benachrichtigungen
 
     private fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -272,8 +253,6 @@ object MediaDownloader {
         runCatching { nm.notify(id, notif) }
     }
 
-    // -------------------------------------------------------------- Netzwerk
-
     private fun fetch(
         url: String,
         target: File,
@@ -281,7 +260,6 @@ object MediaDownloader {
         toPercent: Int,
         onProgress: (Int) -> Unit
     ) {
-        // In 9-MB-Blöcken laden, damit YouTube den Download nicht nach 1 MB drosselt!
         val probeReq = Request.Builder()
             .url(url)
             .header("User-Agent", YtExtractor.userAgent)
@@ -299,6 +277,7 @@ object MediaDownloader {
 
         target.outputStream().use { output ->
             if (totalBytes > 0) {
+                // grosse ranges werden nach ein paar mb gedrosselt, also in haeppchen laden
                 val chunkSize = 9L * 1024L * 1024L
                 var downloaded = 0L
                 var lastPct = -1

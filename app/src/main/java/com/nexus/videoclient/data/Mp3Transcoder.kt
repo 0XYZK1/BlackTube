@@ -10,10 +10,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteOrder
 
-/**
- * Decodes the downloaded YouTube audio (AAC/Opus) with MediaCodec and encodes it
- * to a real MP3 using native LAME. Everything happens locally on the device.
- */
 object Mp3Transcoder {
 
     fun transcode(
@@ -209,7 +205,6 @@ object Mp3Transcoder {
     ) {
         if (pcm.isEmpty() || channels <= 0) return
 
-        // LAME only accepts mono or stereo: downmix >2 channels to L/R
         val interleaved: ShortArray
         val frames: Int
         if (channels == 1) {

@@ -20,10 +20,8 @@ object PlaybackSession {
     var isActive: Boolean = false
         private set
 
-    // Playback Queue (Warteschlange)
     private val queue = ArrayList<VideoItem>()
 
-    // Back history for the "Previous" button (and repeating a video)
     private val previousStack = ArrayList<VideoItem>()
 
     var currentItem: VideoItem? = null

@@ -5,11 +5,6 @@ import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * Speichert Suchverlauf, lokale "Später ansehen"-Einträge, lokale Favoriten
- * und ausgeblendete Videos sofort auf dem Gerät, damit das 3-Punkte-Menü
- * und die Suche sowohl mit als auch ohne Google-Login zuverlässig funktionieren.
- */
 object LocalStore {
 
     private const val PREFS = "blacktube_local_store"
@@ -32,8 +27,6 @@ object LocalStore {
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     }
-
-    // --------------------------------------------------------- Suchverlauf
 
     fun getSearchHistory(): List<String> {
         val raw = prefs.getString(KEY_SEARCH_HISTORY, "[]").orEmpty()
@@ -62,8 +55,6 @@ object LocalStore {
         prefs.edit().remove(KEY_SEARCH_HISTORY).apply()
     }
 
-    // ------------------------------------------------ Video-Listen (Lokal)
-
     fun addWatchLater(item: VideoItem) = upsertVideo(KEY_WATCH_LATER, item)
     fun getWatchLater(): List<VideoItem> = getVideoList(KEY_WATCH_LATER)
 
@@ -87,8 +78,6 @@ object LocalStore {
     fun addHistory(item: VideoItem) = upsertVideo(KEY_HISTORY, item)
     fun getHistory(): List<VideoItem> = getVideoList(KEY_HISTORY)
 
-    // --------------------------------------------------- Ausgeblendete IDs
-
     fun hideVideo(videoId: String) {
         val set = getHiddenIds().toMutableSet()
         set.add(videoId)
@@ -97,8 +86,6 @@ object LocalStore {
 
     fun getHiddenIds(): Set<String> =
         prefs.getStringSet(KEY_HIDDEN, emptySet()).orEmpty()
-
-    // ------------------------------------------------------- Local Stats
 
     fun addWatchSeconds(seconds: Long) {
         if (seconds <= 0L) return
@@ -167,8 +154,6 @@ object LocalStore {
         return if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
     }
 
-    // ------------------------------------------- Synced account stats
-
     fun saveSyncedAccountStats(stats: AccountSyncStats) {
         prefs.edit()
             .putInt(KEY_SYNCED_LIKED_COUNT, stats.totalLikedCount)
@@ -182,8 +167,6 @@ object LocalStore {
         syncedHistoryWatchSeconds = prefs.getLong(KEY_SYNCED_WATCH_SEC, 0L),
         syncedHistoryVideoCount = prefs.getInt(KEY_SYNCED_HISTORY_COUNT, 0)
     )
-
-    // ------------------------------------------- Notification history
 
     fun mergeAndGetNotifications(fresh: List<NotificationItem>): List<NotificationItem> {
         val existing = getCachedNotifications()
@@ -231,8 +214,6 @@ object LocalStore {
             }
         }.getOrDefault(emptyList())
     }
-
-    // -------------------------------------------------------------- Helfer
 
     private fun upsertVideo(key: String, item: VideoItem) {
         if (item.id.isBlank()) return
