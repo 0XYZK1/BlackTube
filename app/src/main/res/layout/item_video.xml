@@ -57,11 +57,11 @@
             android:id="@+id/item_progress"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="3dp"
+            android:layout_height="2.5dp"
             android:layout_gravity="bottom"
             android:max="100"
-            android:progressBackgroundTint="#44FFFFFF"
-            android:progressTint="#FF2D2D"
+            android:progressBackgroundTint="#33FFFFFF"
+            android:progressTint="@color/nexus_white"
             android:visibility="gone" />
     </com.nexus.videoclient.ui.AspectRatioFrameLayout16by9>
 

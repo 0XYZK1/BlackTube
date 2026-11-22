@@ -98,9 +98,13 @@ class VideoAdapter(
                 if (item.duration.isBlank() && !item.isLive) View.GONE else View.VISIBLE
             badge.visibility = if (item.isPlaylist) View.VISIBLE else View.GONE
 
-            if (item.percentWatched > 0) {
+            val pct = maxOf(
+                item.percentWatched,
+                com.nexus.videoclient.data.LocalStore.getPlaybackPercent(item.id)
+            )
+            if (pct > 0) {
                 watchBar.visibility = View.VISIBLE
-                watchBar.progress = item.percentWatched
+                watchBar.progress = pct
             } else {
                 watchBar.visibility = View.GONE
             }

@@ -50,7 +50,11 @@ plays them natively.
 ### Playback
 - Native playback via **Media3 / ExoPlayer** — no WebView, no embedded player
 - Up to **1080p**, with quality selection and an **audio-only** mode
-- **Background audio** through a foreground media service
+- **Background audio** through a foreground media service with a real media
+  notification and lock-screen controls
+- **Audio tracks** switcher (original / auto-dub), plus **SponsorBlock** auto-skip
+  and a sleep timer
+- **Proper audio focus** — starting a video pauses Spotify and other players
 - **Picture-in-Picture** (pop-up player), including auto-PiP when leaving the app
 - **Mini-player** that keeps playing while you browse
 - **Google Cast** to nearby TVs and speakers
@@ -64,8 +68,8 @@ plays them natively.
   password never reaches the app
 - Home feed, subscriptions, playlists, liked videos, Watch Later, history
 - Channel pages and search with paging
-- Comments: read and post
-- Likes and dislikes (dislikes from Return YouTube Dislike)
+- Comments: read and post, with a native comment sheet and real likes/dislikes
+- Likes and dislikes through InnerTube (dislikes also from Return YouTube Dislike)
 - Bulk unsubscribe and bulk unlike
 - Notifications sheet
 - Guest mode: search and playback work without an account
@@ -84,8 +88,11 @@ watched, and likes given. Local stats are merged with your account history when
 you sign in.
 
 ### Interface
+- Sharp black/white redesign: cards, pills, refreshed player and profile views
 - Pure black theme, monochrome icons, no colour accents
 - Home / Subscriptions / Library tabs
+- Profile dashboard with recently watched videos, resume progress and watch stats
+- Tools & Preferences sheet for bulk actions
 - Search overlay with saved search history
 - Edge-to-edge layout, portrait feed, landscape player
 - Opens `youtube.com` and `youtu.be` links from other apps
@@ -95,7 +102,7 @@ you sign in.
 
 ## INSTALL
 
-1. Download the latest **`BlackTube-2.10.1.apk`** from
+1. Download the latest **`BlackTube-2.11.1.apk`** from
    [Releases](https://github.com/0XYZK1/BlackTube/releases/latest).
 2. Open the file on your phone.
 3. Allow installation from unknown sources for your file manager when Android

@@ -120,16 +120,15 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var dislikeCountView: TextView
     private lateinit var descView: TextView
     private lateinit var descToggle: TextView
-    private lateinit var commentsContainer: LinearLayout
-    private lateinit var commentsStatus: TextView
     private lateinit var commentsCountView: TextView
-    private lateinit var moreComments: Button
-    private lateinit var commentInput: EditText
-    private lateinit var commentSend: View
     private lateinit var relatedContainer: LinearLayout
-    private lateinit var commentsHeader: View
-    private lateinit var commentsToggle: TextView
     private lateinit var btnFullscreen: ImageButton
+    private lateinit var audioTrackButton: TextView
+    private lateinit var likeIconView: ImageView
+    private lateinit var dislikeIconView: ImageView
+    private lateinit var commentsPreviewCard: View
+    private lateinit var commentsPreviewAvatar: ImageView
+    private lateinit var commentsPreviewText: TextView
 
     private lateinit var skipLeftOverlay: View
     private lateinit var skipLeftText: TextView
@@ -158,6 +157,32 @@ class PlayerActivity : AppCompatActivity() {
     private var commentsLoading = false
     private var postingComment = false
     private val seenComments = HashSet<String>()
+    private val loadedComments = ArrayList<Comment>()
+    private var videoLiked = false
+    private var videoDisliked = false
+    private var sponsorSegments: List<com.nexus.videoclient.data.SponsorSegment> = emptyList()
+    private val skippedSegments = HashSet<Long>()
+    private var sleepStopAtMs: Long = 0L
+    private var pipReceiverRegistered = false
+
+    private val pipActionReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (!this@PlayerActivity::player.isInitialized) return
+            when (intent?.action) {
+                "com.nexus.blacktube.PIP_TOGGLE" -> {
+                    if (player.isPlaying) player.pause() else player.play()
+                    updatePipParams()
+                }
+                "com.nexus.blacktube.PIP_REWIND" -> {
+                    player.seekTo((player.currentPosition - 10_000L).coerceAtLeast(0L))
+                }
+                "com.nexus.blacktube.PIP_FORWARD" -> {
+                    val dur = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+                    player.seekTo((player.currentPosition + 10_000L).coerceAtMost(dur))
+                }
+            }
+        }
+    }
 
     private var resolveTimeMs = 0L
     private var fallbackTried = false
@@ -234,11 +259,38 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private val watchTimeRunnable = object : Runnable {
+        private var tick = 0
         override fun run() {
             if (this@PlayerActivity::player.isInitialized && player.isPlaying) {
-                LocalStore.addWatchSeconds(5L)
+                val pos = player.currentPosition
+                val dur = player.duration
+
+                // SponsorBlock auto-skip (checked once per second)
+                if (LocalStore.isSponsorBlockEnabled() && sponsorSegments.isNotEmpty()) {
+                    val seg = sponsorSegments.firstOrNull {
+                        pos in it.startMs until (it.endMs - 600L) && skippedSegments.add(it.startMs)
+                    }
+                    if (seg != null) {
+                        player.seekTo(seg.endMs)
+                        toast("Skipped ${seg.category}")
+                    }
+                }
+
+                // Sleep timer
+                if (sleepStopAtMs > 0L && System.currentTimeMillis() >= sleepStopAtMs) {
+                    sleepStopAtMs = 0L
+                    player.pause()
+                    toast("Sleep timer paused playback")
+                }
+
+                // Every 5 seconds persist watchtime & resume position
+                tick++
+                if (tick % 5 == 0) {
+                    LocalStore.addWatchSeconds(5L)
+                    if (dur > 0L) LocalStore.savePlaybackPosition(videoId, pos, dur)
+                }
             }
-            uiHandler.postDelayed(this, 5_000L)
+            uiHandler.postDelayed(this, 1_000L)
         }
     }
 
@@ -253,21 +305,30 @@ class PlayerActivity : AppCompatActivity() {
     private var touchSlop = 24
 
     private val playbackListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            updatePipParams()
+            if (!isPlaying && this@PlayerActivity::player.isInitialized && player.duration > 0L) {
+                LocalStore.savePlaybackPosition(videoId, player.currentPosition, player.duration)
+            }
+        }
+
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_READY) {
                 progress.visibility = View.GONE
                 statusView.setOnClickListener(null)
-                val timing = if (resolveTimeMs > 0) {
-                    " · ready in %.1f s".format(resolveTimeMs / 1000.0)
-                } else {
-                    ""
-                }
+                val timing = if (resolveTimeMs > 0) " · %.1fs".format(resolveTimeMs / 1000.0) else ""
                 val speedLabel = if (playbackSpeed != 1.0f) " · ${playbackSpeed}x" else ""
+                val audioLabel = currentAudioLabel()
                 statusView.text =
-                    "Quality: ${selectedHeight?.let { "${it}p" } ?: "Auto"} · Original audio$speedLabel$timing"
+                    "${selectedHeight?.let { "${it}p" } ?: "Auto"} · $audioLabel$speedLabel$timing"
+                audioTrackButton.text = audioLabel
+                updatePipParams()
             } else if (state == Player.STATE_BUFFERING) {
                 progress.visibility = View.VISIBLE
             } else if (state == Player.STATE_ENDED) {
+                if (player.duration > 0L) {
+                    LocalStore.savePlaybackPosition(videoId, player.duration, player.duration)
+                }
                 val next = PlaybackSession.popNextInQueue()
                 if (next != null) {
                     toast("Up next: ${next.title}")
@@ -279,6 +340,10 @@ class PlayerActivity : AppCompatActivity() {
         override fun onPlayerError(error: PlaybackException) {
             progress.visibility = View.GONE
             val currentPos = player.currentPosition.coerceAtLeast(0L)
+            if (player.duration > 0L) {
+                LocalStore.savePlaybackPosition(videoId, currentPos, player.duration)
+            }
+
             if (!fallbackTried && usedAdaptive) {
                 fallbackTried = true
                 val fallback = streams?.bestProgressive(720)
@@ -289,12 +354,21 @@ class PlayerActivity : AppCompatActivity() {
             }
             if (!autoRetried) {
                 autoRetried = true
-                statusView.text = "Resuming stream at the current position…"
-                uiHandler.postDelayed({ autoReload(currentPos) }, 600)
+                statusView.text = "Refreshing stream…"
+                uiHandler.postDelayed({ autoReload(currentPos) }, 900)
                 return
             }
-            statusView.text = "Playback interrupted – tap here to resume"
+            statusView.text = "Stream interrupted – tap to retry"
             statusView.setOnClickListener { retryPlayback(currentPos) }
+        }
+    }
+
+    private fun currentAudioLabel(): String {
+        val active = streams?.bestOriginalAudio(selectedAudioKey) ?: return "Original"
+        return when {
+            active.isOriginalAudio -> "Original"
+            active.isDubbedAudio -> "${active.audioLocale.uppercase().ifBlank { "Dub" }} (Dub)"
+            else -> active.audioTrackName.ifBlank { "Original" }
         }
     }
 
@@ -322,15 +396,15 @@ class PlayerActivity : AppCompatActivity() {
         dislikeCountView = findViewById(R.id.dislike_count)
         descView = findViewById(R.id.desc_text)
         descToggle = findViewById(R.id.desc_toggle)
-        commentsContainer = findViewById(R.id.comments_container)
-        commentsStatus = findViewById(R.id.comments_status)
         commentsCountView = findViewById(R.id.comments_count)
-        moreComments = findViewById(R.id.btn_more_comments)
-        commentInput = findViewById(R.id.comment_input)
-        commentSend = findViewById(R.id.comment_send)
         relatedContainer = findViewById(R.id.related_container)
-        commentsHeader = findViewById(R.id.comments_header)
-        commentsToggle = findViewById(R.id.comments_toggle)
+        audioTrackButton = findViewById(R.id.btn_audio_track)
+        likeIconView = findViewById(R.id.icon_like)
+        dislikeIconView = findViewById(R.id.icon_dislike)
+        commentsPreviewCard = findViewById(R.id.comments_preview_card)
+        commentsPreviewAvatar = findViewById(R.id.comments_preview_avatar)
+        commentsPreviewAvatar.makeCircular()
+        commentsPreviewText = findViewById(R.id.comments_preview_text)
 
         skipLeftOverlay = findViewById(R.id.skip_left_overlay)
         skipLeftText = findViewById(R.id.skip_left_text)
@@ -350,7 +424,12 @@ class PlayerActivity : AppCompatActivity() {
 
         val shared = PlaybackSession.player
         // der puffer ist absichtlich fett, sonst bleibt 1080p auf mobilfunk stehen
+        val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
         player = shared ?: ExoPlayer.Builder(this)
+            .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
             .setLoadControl(
                 DefaultLoadControl.Builder()
                     .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
@@ -379,22 +458,54 @@ class PlayerActivity : AppCompatActivity() {
         setupPictureInPicture()
         setupGestures()
         initGoogleCast()
-        uiHandler.postDelayed(watchTimeRunnable, 5_000L)
+        uiHandler.postDelayed(watchTimeRunnable, 1_000L)
 
         installCustomControls()
 
         qualityButton.setOnClickListener { showSettingsSheet() }
+        audioTrackButton.setOnClickListener { showAudioTrackSheet() }
 
+        findViewById<View>(R.id.action_save_playlist).setOnClickListener {
+            showSaveToPlaylistSheet(
+                this,
+                lifecycleScope,
+                VideoItem(
+                    id = videoId,
+                    title = titleView.text.toString(),
+                    channel = watchChannelName,
+                    channelId = watchChannelId,
+                    thumbnail = "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+                )
+            )
+        }
+        commentsPreviewCard.setOnClickListener { showCommentsBottomSheet() }
+
+        // Real video like / dislike via InnerTube
         findViewById<View>(R.id.action_like).setOnClickListener {
-            val liked = LocalStore.toggleLike(videoId)
-            updateLikeButtonsUi()
-            toast(if (liked) "Added to Liked Videos" else "Like removed")
+            handleVideoLikeClick(like = true)
         }
         findViewById<View>(R.id.action_dislike).setOnClickListener {
-            LocalStore.toggleDislike(videoId)
-            updateLikeButtonsUi()
+            handleVideoLikeClick(like = false)
         }
+        videoLiked = LocalStore.isLiked(videoId)
+        videoDisliked = LocalStore.isDisliked(videoId)
         updateLikeButtonsUi()
+
+        val initialTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+        titleView.text = initialTitle
+        if (videoId.isNotBlank()) PlaybackSession.activate(videoId, initialTitle)
+
+        // PiP actions (Android 13/14 safe)
+        val pipFilter = android.content.IntentFilter().apply {
+            addAction("com.nexus.blacktube.PIP_TOGGLE")
+            addAction("com.nexus.blacktube.PIP_REWIND")
+            addAction("com.nexus.blacktube.PIP_FORWARD")
+        }
+        androidx.core.content.ContextCompat.registerReceiver(
+            this, pipActionReceiver, pipFilter,
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        pipReceiverRegistered = true
 
         descToggle.setOnClickListener { toggleDescription() }
         findViewById<Button>(R.id.btn_mp4).setOnClickListener { downloadVideo() }
@@ -426,9 +537,6 @@ class PlayerActivity : AppCompatActivity() {
                 }
             }
         }
-        moreComments.setOnClickListener { loadComments() }
-        commentSend.setOnClickListener { sendComment() }
-        commentsHeader.setOnClickListener { toggleComments() }
 
         onBackPressedDispatcher.addCallback(this) {
             if (fullscreen) {
@@ -436,10 +544,6 @@ class PlayerActivity : AppCompatActivity() {
             } else {
                 animateAndMinimize()
             }
-        }
-
-        if (!Session.isLoggedIn) {
-            commentInput.hint = "Sign in to comment"
         }
 
         if (videoId.isBlank()) {
@@ -545,10 +649,19 @@ class PlayerActivity : AppCompatActivity() {
         videoContainer.requestLayout()
     }
 
-    private fun load(resumeFromMs: Long = 0L) {
+    private fun load(resumeFromMs: Long = -1L) {
         progress.visibility = View.VISIBLE
-        statusView.text = "Loading original stream…"
+        statusView.text = "Resolving stream…"
         statusView.setOnClickListener(null)
+        sponsorSegments = emptyList()
+        skippedSegments.clear()
+
+        val targetResumeMs = if (resumeFromMs >= 0L) {
+            resumeFromMs
+        } else {
+            LocalStore.getPlaybackPosition(videoId)
+        }
+
         val started = System.currentTimeMillis()
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -558,14 +671,23 @@ class PlayerActivity : AppCompatActivity() {
                 resolveTimeMs = System.currentTimeMillis() - started
                 streams = resolved
                 applyResolvedMetadata(resolved)
-                play(resumeFromMs)
+                PlaybackSession.updateMetadata(resolved.title, resolved.uploader)
+                play(targetResumeMs)
+                if (targetResumeMs >= 5_000L) {
+                    toast("Resumed at ${formatTimestamp(targetResumeMs)}")
+                }
             }.onFailure { error ->
                 progress.visibility = View.GONE
-                statusView.text =
-                    "Could not load: ${error.message} – tap here to retry"
-                statusView.setOnClickListener { retryPlayback(resumeFromMs) }
+                statusView.text = "Could not load: ${error.message} – tap to retry"
+                statusView.setOnClickListener { retryPlayback(targetResumeMs.coerceAtLeast(0L)) }
             }
-            uiHandler.postDelayed({ loadWatchInfo() }, 900)
+            uiHandler.postDelayed({ loadWatchInfo() }, 500)
+            if (LocalStore.isSponsorBlockEnabled()) {
+                val segs = withContext(Dispatchers.IO) {
+                    com.nexus.videoclient.data.SponsorBlock.segments(videoId)
+                }
+                sponsorSegments = segs
+            }
         }
     }
 
@@ -624,7 +746,8 @@ class PlayerActivity : AppCompatActivity() {
             watchChannelName = info.channel
             channelView.text = info.channel
         }
-        channelSubsView.text = info.subscribers.ifBlank { "Visit channel" }
+        PlaybackSession.updateMetadata(titleView.text.toString(), watchChannelName)
+        channelSubsView.text = info.subscribers.ifBlank { "Channel" }
 
         if (info.channelAvatar.isNotBlank()) {
             channelAvatarView.load(info.channelAvatar) {
@@ -637,10 +760,16 @@ class PlayerActivity : AppCompatActivity() {
         watchChannelSubscribed = info.isSubscribed
         updatePlayerSubscribeUi()
 
+        if (Session.isLoggedIn) {
+            videoLiked = info.isLiked
+            videoDisliked = info.isDisliked
+            LocalStore.setVideoLikeState(videoId, videoLiked, videoDisliked)
+            updateLikeButtonsUi()
+        }
+
         val meta = listOf(info.views, info.published).filter { it.isNotBlank() }
         metaView.text = meta.joinToString(" · ")
-
-        likeCountView.text = info.likes.ifBlank { "–" }
+        likeCountView.text = info.likes.ifBlank { "Like" }
 
         if (info.description.isNotBlank()) {
             descView.text = info.description
@@ -653,29 +782,30 @@ class PlayerActivity : AppCompatActivity() {
             descToggle.visibility = View.GONE
         }
 
-        if (page.commentCount.isNotBlank()) {
-            val count = page.commentCount
-                .replace(Regex("(?i)\\s*comments?\\s*"), " ")
-                .replace(Regex("\\s+"), " ")
-                .trim()
-            commentsCountView.text = count
-        }
+        val countClean = page.commentCount
+            .replace(Regex("(?i)\\s*comments?\\s*"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        commentsCountView.text = countClean
 
         createCommentParams = page.createCommentParams
         commentToken = page.commentToken
         initialCommentToken = page.commentToken
         lastRelated = page.related
         renderRelated(page.related)
+
         if (commentToken.isNullOrBlank()) {
-            commentsStatus.text = "Comments are not available for this video."
+            commentsPreviewText.text = "Comments are disabled for this video."
+            commentsPreviewAvatar.visibility = View.GONE
         } else {
+            commentsPreviewText.text = "Tap to read & post comments…"
             loadComments()
         }
     }
 
     private fun toggleDescription() {
         descriptionExpanded = !descriptionExpanded
-        descView.maxLines = if (descriptionExpanded) Int.MAX_VALUE else 3
+        descView.maxLines = if (descriptionExpanded) Int.MAX_VALUE else 2
         descView.ellipsize = if (descriptionExpanded) null else TextUtils.TruncateAt.END
         descToggle.text = if (descriptionExpanded) "Show less" else "Show more"
     }
@@ -731,6 +861,9 @@ class PlayerActivity : AppCompatActivity() {
 
     private fun openVideo(id: String, title: String) {
         if (id == videoId) return
+        if (this::player.isInitialized && player.duration > 0L) {
+            LocalStore.savePlaybackPosition(videoId, player.currentPosition, player.duration)
+        }
         videoId = id
         selectedHeight = null
         selectedAudioKey = null
@@ -742,14 +875,19 @@ class PlayerActivity : AppCompatActivity() {
         watchChannelSubscribed = false
         streams = null
         commentToken = null
+        initialCommentToken = null
         createCommentParams = null
         seenComments.clear()
-        commentsContainer.removeAllViews()
+        loadedComments.clear()
+        sponsorSegments = emptyList()
+        skippedSegments.clear()
         relatedContainer.removeAllViews()
         commentsCountView.text = ""
-        commentsStatus.text = ""
+        commentsPreviewText.text = "Loading comments…"
+        commentsPreviewAvatar.setImageDrawable(null)
+        commentsPreviewAvatar.visibility = View.GONE
         descView.text = ""
-        descView.maxLines = 3
+        descView.maxLines = 2
         descriptionExpanded = false
         descToggle.text = "Show more"
         likeCountView.text = "…"
@@ -759,24 +897,16 @@ class PlayerActivity : AppCompatActivity() {
         channelView.text = ""
         channelSubsView.text = ""
         channelAvatarView.setImageDrawable(null)
+        audioTrackButton.text = "Audio"
+        videoLiked = LocalStore.isLiked(id)
+        videoDisliked = LocalStore.isDisliked(id)
         updatePlayerSubscribeUi()
+        updateLikeButtonsUi()
         findViewById<View>(R.id.player_scroll).scrollTo(0, 0)
         PlaybackSession.activate(id, title)
         LocalStore.recordVideoWatched(VideoItem(id = id, title = title))
-        updateLikeButtonsUi()
         renderInlineQueue()
         load()
-    }
-
-    private fun toggleComments() {
-        commentsCollapsed = !commentsCollapsed
-        val body = if (commentsCollapsed) View.GONE else View.VISIBLE
-        commentsContainer.visibility = body
-        commentsStatus.visibility = body
-        findViewById<View>(R.id.comment_composer).visibility = body
-        moreComments.visibility =
-            if (commentsCollapsed || commentToken.isNullOrBlank()) View.GONE else View.VISIBLE
-        commentsToggle.text = if (commentsCollapsed) "Show" else "Hide"
     }
 
     private fun animateAndMinimize() {
@@ -784,7 +914,6 @@ class PlayerActivity : AppCompatActivity() {
             setFullscreenState(false)
             return
         }
-        enableSwipeTransparency()
         val targetY = resources.displayMetrics.heightPixels - dp(120).toFloat()
         playerRoot.animate()
             .translationY(targetY)
@@ -797,18 +926,16 @@ class PlayerActivity : AppCompatActivity() {
             .start()
     }
 
-    private fun enableSwipeTransparency() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+    private fun minimizeImmediate() {
+        PlaybackSession.isPlayerForeground = false
+        if (this::playerView.isInitialized) {
+            // Release the TextureView surface before MainActivity attaches the mini player.
+            // Otherwise both views briefly fight over the same player -> stutter/frozen frame.
             runCatching {
-                setTranslucent(true)
-                window.setBackgroundDrawable(
-                    android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
-                )
+                playerView.player = null
+                playerView.onPause()
             }
         }
-    }
-
-    private fun minimizeImmediate() {
         if (this::player.isInitialized && player.mediaItemCount > 0) {
             PlaybackSession.activate(
                 videoId,
@@ -1137,7 +1264,6 @@ class PlayerActivity : AppCompatActivity() {
                     if (gestureMode == GESTURE_NONE) {
                         if (abs(dy) > touchSlop && abs(dy) > abs(dx) * 1.2f) {
                             gestureMode = if (!fullscreen && dy > 0) {
-                                enableSwipeTransparency()
                                 GESTURE_SWIPE_MINIMIZE
                             } else {
                                 GESTURE_VERTICAL_HUD
@@ -1183,9 +1309,6 @@ class PlayerActivity : AppCompatActivity() {
                             if (dy > dp(105) || (dy > dp(55) && elapsed < 260)) {
                                 animateAndMinimize()
                             } else {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                    runCatching { setTranslucent(false) }
-                                }
                                 playerRoot.animate()
                                     .translationY(0f)
                                     .scaleX(1f)
@@ -1436,21 +1559,79 @@ class PlayerActivity : AppCompatActivity() {
         )
     }
 
+    private fun handleVideoLikeClick(like: Boolean) {
+        val prevLiked = videoLiked
+        val prevDisliked = videoDisliked
+
+        if (like) {
+            videoLiked = !videoLiked
+            if (videoLiked) videoDisliked = false
+        } else {
+            videoDisliked = !videoDisliked
+            if (videoDisliked) videoLiked = false
+        }
+
+        LocalStore.setVideoLikeState(videoId, videoLiked, videoDisliked)
+        updateLikeButtonsUi()
+
+        if (!Session.isLoggedIn) {
+            toast(
+                when {
+                    videoLiked -> "Saved locally · Sign in to sync likes"
+                    videoDisliked -> "Disliked locally"
+                    else -> "Rating cleared"
+                }
+            )
+            return
+        }
+
+        val targetLiked = videoLiked
+        val targetDisliked = videoDisliked
+        val targetId = videoId
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                when {
+                    targetLiked -> InnerTube.likeVideo(targetId)
+                    targetDisliked -> InnerTube.dislikeVideo(targetId)
+                    else -> InnerTube.removeLike(targetId)
+                }
+            }
+            if (ok) {
+                InnerTube.clearCache()
+                toast(
+                    when {
+                        targetLiked -> "Liked video"
+                        targetDisliked -> "Disliked video"
+                        else -> "Removed rating"
+                    }
+                )
+            } else {
+                videoLiked = prevLiked
+                videoDisliked = prevDisliked
+                LocalStore.setVideoLikeState(targetId, prevLiked, prevDisliked)
+                updateLikeButtonsUi()
+                toast("Could not update rating on YouTube")
+            }
+        }
+    }
+
     private fun updateLikeButtonsUi() {
-        val liked = LocalStore.isLiked(videoId)
-        val disliked = LocalStore.isDisliked(videoId)
-        findViewById<View>(R.id.action_like).setBackgroundResource(
-            if (liked) R.drawable.bg_primary_button else R.drawable.bg_account_pill
+        val likePill = findViewById<View>(R.id.action_like)
+        val dislikePill = findViewById<View>(R.id.action_dislike)
+
+        likePill.setBackgroundResource(
+            if (videoLiked) R.drawable.bg_primary_button else R.drawable.bg_account_pill
         )
-        likeCountView.setTextColor(
-            getColor(if (liked) R.color.nexus_black else R.color.nexus_white)
+        val likeFg = getColor(if (videoLiked) R.color.nexus_black else R.color.nexus_white)
+        likeCountView.setTextColor(likeFg)
+        likeIconView.imageTintList = android.content.res.ColorStateList.valueOf(likeFg)
+
+        dislikePill.setBackgroundResource(
+            if (videoDisliked) R.drawable.bg_primary_button else R.drawable.bg_account_pill
         )
-        findViewById<View>(R.id.action_dislike).setBackgroundResource(
-            if (disliked) R.drawable.bg_primary_button else R.drawable.bg_account_pill
-        )
-        dislikeCountView.setTextColor(
-            getColor(if (disliked) R.color.nexus_black else R.color.nexus_white)
-        )
+        val dislikeFg = getColor(if (videoDisliked) R.color.nexus_black else R.color.nexus_white)
+        dislikeCountView.setTextColor(dislikeFg)
+        dislikeIconView.imageTintList = android.content.res.ColorStateList.valueOf(dislikeFg)
     }
 
     private fun currentBrightness(): Float {
@@ -1487,12 +1668,13 @@ class PlayerActivity : AppCompatActivity() {
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
 
-    private fun loadComments() {
-        val token = commentToken ?: return
+    private fun loadComments(onLoaded: (() -> Unit)? = null) {
+        val token = commentToken ?: run {
+            onLoaded?.invoke()
+            return
+        }
         if (commentsLoading) return
         commentsLoading = true
-        moreComments.visibility = View.GONE
-        commentsStatus.text = "Loading comments…"
 
         lifecycleScope.launch {
             val page = withContext(Dispatchers.IO) {
@@ -1500,93 +1682,410 @@ class PlayerActivity : AppCompatActivity() {
             }
             commentsLoading = false
 
-            if (page == null) {
-                commentsStatus.text = "Could not load comments."
-                moreComments.visibility = View.VISIBLE
-                return@launch
+            if (page != null) {
+                page.items.forEach { c ->
+                    val key = c.id.ifBlank { c.author + "|" + c.text }
+                    if (seenComments.add(key)) loadedComments.add(c)
+                }
+                if (!page.createCommentParams.isNullOrBlank()) {
+                    createCommentParams = page.createCommentParams
+                }
+                commentToken = page.continuation
             }
-
-            page.items.forEach { renderComment(it) }
-            if (!page.createCommentParams.isNullOrBlank()) {
-                createCommentParams = page.createCommentParams
-            }
-            commentToken = page.continuation
-            moreComments.visibility = if (commentToken.isNullOrBlank()) View.GONE else View.VISIBLE
-            commentsStatus.text = if (seenComments.isEmpty()) "No comments yet." else ""
+            updateCommentsPreviewCard()
+            onLoaded?.invoke()
         }
     }
 
-    private fun sendComment() {
-        val text = commentInput.text.toString().trim()
-        if (text.isEmpty()) return
-
-        if (!Session.isLoggedIn) {
-            toast("Please sign in with your Google account first.")
-            runCatching { startActivity(Intent(this, LoginActivity::class.java)) }
-            return
-        }
-
-        val params = createCommentParams ?: InnerTube.commentParamsFor(videoId)
-        if (params.isBlank()) {
-            toast("Comments are not available for this video.")
-            return
-        }
-        if (postingComment) return
-
-        postingComment = true
-        commentSend.isEnabled = false
-        commentInput.isEnabled = false
-
-        lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { InnerTube.postComment(params, text) }
+    private fun updateCommentsPreviewCard() {
+        val top = loadedComments.firstOrNull()
+        if (top != null) {
+            commentsPreviewText.text = top.text
+            if (top.avatar.isNotBlank()) {
+                commentsPreviewAvatar.visibility = View.VISIBLE
+                commentsPreviewAvatar.load(top.avatar) {
+                    crossfade(true)
+                    transformations(CircleCropTransformation())
+                }
+            } else {
+                commentsPreviewAvatar.visibility = View.GONE
             }
-            postingComment = false
-            commentSend.isEnabled = true
-            commentInput.isEnabled = true
-
-            result.onSuccess {
-                commentInput.setText("")
-                toast("Comment posted.")
-                reloadComments()
-            }.onFailure { error ->
-                toast("Failed to post: ${error.message}")
-            }
+        } else {
+            commentsPreviewAvatar.visibility = View.GONE
+            commentsPreviewText.text =
+                if (commentToken.isNullOrBlank()) "No comments yet · Tap to add one"
+                else "Tap to open comments"
         }
     }
 
-    private fun reloadComments() {
-        commentsContainer.removeAllViews()
-        seenComments.clear()
-        commentToken = initialCommentToken
-        commentsStatus.text = ""
-        loadComments()
+    private fun showCommentsBottomSheet() {
+        val dialog = BottomSheetDialog(this, R.style.Theme_Nexus_BottomSheet)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_bottom_sheet)
+            setPadding(dp(16), dp(12), dp(16), dp(16))
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (resources.displayMetrics.heightPixels * 0.78f).toInt()
+            )
+        }
+
+        root.addView(View(this).apply {
+            setBackgroundResource(R.drawable.bg_account_pill)
+            layoutParams = LinearLayout.LayoutParams(dp(36), dp(3)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = dp(12)
+            }
+        })
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(2), 0, dp(2), dp(10))
+        }
+        header.addView(TextView(this).apply {
+            val cnt = commentsCountView.text.toString()
+            text = if (cnt.isNotBlank()) "COMMENTS · $cnt" else "COMMENTS"
+            letterSpacing = 0.14f
+            setTextColor(getColor(R.color.nexus_white))
+            textSize = 12.5f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        header.addView(TextView(this).apply {
+            text = "✕"
+            setTextColor(getColor(R.color.nexus_text_muted))
+            textSize = 16f
+            setPadding(dp(10), dp(4), dp(4), dp(4))
+            setOnClickListener { dialog.dismiss() }
+        })
+        root.addView(header)
+
+        // Composer at the top -> immediately reachable without scrolling.
+        val composer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundResource(R.drawable.bg_card)
+            setPadding(dp(12), dp(8), dp(8), dp(8))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+        }
+        val input = EditText(this).apply {
+            background = null
+            hint = if (Session.isLoggedIn) "Write a comment…" else "Sign in to comment"
+            setTextColor(getColor(R.color.nexus_white))
+            setHintTextColor(getColor(R.color.nexus_text_dim))
+            textSize = 13.5f
+            maxLines = 4
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val sendBtn = TextView(this).apply {
+            text = "POST"
+            letterSpacing = 0.1f
+            setTextColor(getColor(R.color.nexus_black))
+            textSize = 11.5f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setBackgroundResource(R.drawable.bg_primary_button)
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(8) }
+        }
+        composer.addView(input)
+        composer.addView(sendBtn)
+        root.addView(composer)
+
+        val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val statusTv = TextView(this).apply {
+            setTextColor(getColor(R.color.nexus_text_dim))
+            textSize = 12.5f
+            setPadding(dp(4), dp(10), dp(4), dp(10))
+        }
+        val loadMoreBtn = Button(this, null, 0, R.style.NexusButton).apply {
+            text = "Load more comments"
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(42)
+            ).apply { topMargin = dp(10) }
+            visibility = View.GONE
+        }
+        val scrollInner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(listBox)
+            addView(statusTv)
+            addView(loadMoreBtn)
+        }
+        val scroll = android.widget.ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+            addView(scrollInner)
+        }
+        root.addView(scroll)
+
+        fun renderList() {
+            listBox.removeAllViews()
+            loadedComments.forEachIndexed { idx, comment ->
+                listBox.addView(inflateInteractiveComment(comment) { updated ->
+                    if (idx in loadedComments.indices) loadedComments[idx] = updated
+                })
+            }
+            statusTv.text = when {
+                commentsLoading -> "Loading comments…"
+                loadedComments.isEmpty() -> "No comments yet."
+                else -> ""
+            }
+            statusTv.visibility = if (statusTv.text.isBlank()) View.GONE else View.VISIBLE
+            loadMoreBtn.visibility = if (commentToken.isNullOrBlank()) View.GONE else View.VISIBLE
+        }
+
+        loadMoreBtn.setOnClickListener {
+            loadMoreBtn.isEnabled = false
+            loadComments {
+                loadMoreBtn.isEnabled = true
+                renderList()
+            }
+        }
+
+        sendBtn.setOnClickListener {
+            val text = input.text.toString().trim()
+            if (text.isEmpty()) return@setOnClickListener
+            if (!Session.isLoggedIn) {
+                toast("Sign in with Google to post comments")
+                runCatching { startActivity(Intent(this, LoginActivity::class.java)) }
+                return@setOnClickListener
+            }
+            val params = createCommentParams ?: InnerTube.commentParamsFor(videoId)
+            if (params.isBlank() || postingComment) return@setOnClickListener
+
+            postingComment = true
+            sendBtn.isEnabled = false
+            sendBtn.text = "…"
+            lifecycleScope.launch {
+                val res = withContext(Dispatchers.IO) {
+                    runCatching { InnerTube.postComment(params, text) }
+                }
+                postingComment = false
+                sendBtn.isEnabled = true
+                sendBtn.text = "POST"
+                res.onSuccess {
+                    input.setText("")
+                    toast("Comment posted")
+                    loadedComments.add(
+                        0,
+                        Comment(
+                            author = Session.accountName ?: "You",
+                            avatar = Session.accountAvatar.orEmpty(),
+                            text = text,
+                            published = "Just now",
+                            likes = "0"
+                        )
+                    )
+                    updateCommentsPreviewCard()
+                    renderList()
+                }.onFailure { err ->
+                    toast("Failed to post: ${err.message}")
+                }
+            }
+        }
+
+        renderList()
+        if (loadedComments.isEmpty() && !commentToken.isNullOrBlank()) {
+            loadComments { renderList() }
+        }
+
+        dialog.setContentView(root)
+        dialog.show()
+        expandBottomSheetFully(dialog)
     }
 
-    private fun renderComment(comment: Comment) {
-        val key = comment.author + "|" + comment.text
-        if (!seenComments.add(key)) return
+    private fun inflateInteractiveComment(
+        initial: Comment,
+        onStateChanged: (Comment) -> Unit
+    ): View {
+        var current = initial
+        val view = LayoutInflater.from(this).inflate(R.layout.item_comment, null, false)
 
-        val view = LayoutInflater.from(this)
-            .inflate(R.layout.item_comment, commentsContainer, false)
-
-        view.findViewById<TextView>(R.id.comment_author).text = comment.author
-        view.findViewById<TextView>(R.id.comment_published).text = comment.published
-        view.findViewById<TextView>(R.id.comment_text).text = comment.text
-
-        val likes = view.findViewById<TextView>(R.id.comment_likes)
-        likes.text = comment.likes.takeIf { it.isNotBlank() } ?: ""
+        view.findViewById<TextView>(R.id.comment_author).text = current.author
+        view.findViewById<TextView>(R.id.comment_published).text = current.published
+        view.findViewById<TextView>(R.id.comment_text).text = current.text
 
         val avatar = view.findViewById<ImageView>(R.id.comment_avatar)
         avatar.makeCircular()
-        if (comment.avatar.isNotBlank()) {
-            avatar.load(comment.avatar) {
+        if (current.avatar.isNotBlank()) {
+            avatar.load(current.avatar) {
                 crossfade(true)
                 transformations(CircleCropTransformation())
             }
         }
 
-        commentsContainer.addView(view)
+        val likeBtn = view.findViewById<View>(R.id.comment_like_btn)
+        val likeIcon = view.findViewById<ImageView>(R.id.comment_like_icon)
+        val likesTv = view.findViewById<TextView>(R.id.comment_likes)
+        val dislikeBtn = view.findViewById<View>(R.id.comment_dislike_btn)
+        val dislikeIcon = view.findViewById<ImageView>(R.id.comment_dislike_icon)
+
+        fun renderReaction() {
+            val activeTint = getColor(R.color.nexus_white)
+            val mutedTint = getColor(R.color.nexus_text_dim)
+            likeIcon.imageTintList = android.content.res.ColorStateList.valueOf(
+                if (current.isLiked) activeTint else mutedTint
+            )
+            likeIcon.alpha = if (current.isLiked) 1f else 0.65f
+            likesTv.setTextColor(if (current.isLiked) activeTint else mutedTint)
+            likesTv.text = when {
+                current.isLiked && current.likesWhenLiked.isNotBlank() -> current.likesWhenLiked
+                current.isLiked && current.likes.isBlank() -> "1"
+                else -> current.likes
+            }
+
+            dislikeIcon.imageTintList = android.content.res.ColorStateList.valueOf(
+                if (current.isDisliked) activeTint else mutedTint
+            )
+            dislikeIcon.alpha = if (current.isDisliked) 1f else 0.65f
+        }
+        renderReaction()
+
+        likeBtn.setOnClickListener {
+            if (!Session.isLoggedIn) {
+                toast("Sign in to like comments")
+                return@setOnClickListener
+            }
+            val action = if (current.isLiked) current.unlikeAction else current.likeAction
+            if (action.isBlank()) {
+                toast("Comment action unavailable")
+                return@setOnClickListener
+            }
+            val prev = current
+            current = current.copy(
+                isLiked = !current.isLiked,
+                isDisliked = if (!current.isLiked) false else current.isDisliked
+            )
+            renderReaction()
+            onStateChanged(current)
+
+            lifecycleScope.launch {
+                val ok = withContext(Dispatchers.IO) { InnerTube.performCommentAction(action) }
+                if (!ok) {
+                    current = prev
+                    renderReaction()
+                    onStateChanged(prev)
+                    toast("Could not like comment")
+                }
+            }
+        }
+
+        dislikeBtn.setOnClickListener {
+            if (!Session.isLoggedIn) {
+                toast("Sign in to react to comments")
+                return@setOnClickListener
+            }
+            val action = if (current.isDisliked) current.undislikeAction else current.dislikeAction
+            if (action.isBlank()) return@setOnClickListener
+            val prev = current
+            current = current.copy(
+                isDisliked = !current.isDisliked,
+                isLiked = if (!current.isDisliked) false else current.isLiked
+            )
+            renderReaction()
+            onStateChanged(current)
+
+            lifecycleScope.launch {
+                val ok = withContext(Dispatchers.IO) { InnerTube.performCommentAction(action) }
+                if (!ok) {
+                    current = prev
+                    renderReaction()
+                    onStateChanged(prev)
+                }
+            }
+        }
+
+        return view
+    }
+
+    private fun showAudioTrackSheet() {
+        val resolved = streams ?: run {
+            toast("Audio tracks are loading…")
+            return
+        }
+        val tracks = resolved.distinctAudioTracks
+        if (tracks.isEmpty()) {
+            toast("Only one audio track available")
+            return
+        }
+
+        val dialog = BottomSheetDialog(this, R.style.Theme_Nexus_BottomSheet)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_bottom_sheet)
+            setPadding(dp(18), dp(14), dp(18), dp(26))
+        }
+        root.addView(View(this).apply {
+            setBackgroundResource(R.drawable.bg_account_pill)
+            layoutParams = LinearLayout.LayoutParams(dp(36), dp(3)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = dp(14)
+            }
+        })
+        root.addView(TextView(this).apply {
+            text = "AUDIO TRACK · ORIGINAL / DUB"
+            letterSpacing = 0.14f
+            setTextColor(getColor(R.color.nexus_white))
+            textSize = 12.5f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(2), 0, dp(2), dp(10))
+        })
+
+        val currentTrack = resolved.bestOriginalAudio(selectedAudioKey)
+        tracks.forEach { track ->
+            val active = track.trackKey == currentTrack?.trackKey
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setBackgroundResource(if (active) R.drawable.bg_primary_button else R.drawable.bg_card)
+                setPadding(dp(14), dp(13), dp(14), dp(13))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(8) }
+                setOnClickListener {
+                    selectedAudioKey = track.trackKey
+                    dialog.dismiss()
+                    play()
+                    toast("Audio: ${track.displayAudioName}")
+                }
+            }
+            val fg = getColor(if (active) R.color.nexus_black else R.color.nexus_white)
+            row.addView(TextView(this).apply {
+                text = track.displayAudioName
+                setTextColor(fg)
+                textSize = 13.5f
+                setTypeface(
+                    typeface,
+                    if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL
+                )
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            if (active) {
+                row.addView(TextView(this).apply {
+                    text = "ACTIVE"
+                    letterSpacing = 0.1f
+                    setTextColor(fg)
+                    textSize = 10.5f
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                })
+            }
+            root.addView(row)
+        }
+
+        dialog.setContentView(android.widget.ScrollView(this).apply { addView(root) })
+        dialog.show()
+        expandBottomSheetFully(dialog)
     }
 
     private fun play(startPositionMs: Long? = null) {
@@ -1609,11 +2108,12 @@ class PlayerActivity : AppCompatActivity() {
         player.playWhenReady = true
         PlaybackService.start(this)
 
-        statusView.text = "Loading… Original audio"
+        statusView.text = "Loading… ${currentAudioLabel()}"
         qualityButton.text = buildString {
             append(selectedHeight?.let { "${it}p" } ?: "Auto")
             if (playbackSpeed != 1.0f) append(" · ${playbackSpeed}x")
         }
+        audioTrackButton.text = currentAudioLabel()
     }
 
     private fun playProgressive(choice: StreamChoice, positionMs: Long = 0L) {
@@ -1630,11 +2130,26 @@ class PlayerActivity : AppCompatActivity() {
 
     private data class ChosenSource(val source: MediaSource, val adaptive: Boolean)
 
+    private fun smartLoadErrorPolicy() = object : DefaultLoadErrorHandlingPolicy(2) {
+        override fun getRetryDelayMsFor(
+            loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo
+        ): Long {
+            val err = loadErrorInfo.exception
+            // On 403/410 abort immediately instead of retrying 8x; onPlayerError refreshes the URL.
+            if (err is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException &&
+                (err.responseCode == 403 || err.responseCode == 410 || err.responseCode == 404)
+            ) {
+                return C.TIME_UNSET
+            }
+            return super.getRetryDelayMsFor(loadErrorInfo)
+        }
+    }
+
     private fun buildSource(resolved: Resolved, maxHeight: Int): ChosenSource? {
         if (resolved.hlsUrl.isNotBlank()) {
             val hlsSource = androidx.media3.exoplayer.hls.HlsMediaSource
-                .Factory(dataSourceFactory())
-                .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(8))
+                .Factory(dataSourceFactory(resolved.hlsUrl))
+                .setLoadErrorHandlingPolicy(smartLoadErrorPolicy())
                 .createMediaSource(MediaItem.fromUri(resolved.hlsUrl))
             return ChosenSource(hlsSource, false)
         }
@@ -1649,10 +2164,8 @@ class PlayerActivity : AppCompatActivity() {
                     MergingMediaSource(source(adaptive.url), source(audio.url)),
                     true
                 )
-            progressive != null ->
-                ChosenSource(source(progressive.url), false)
-            audio != null ->
-                ChosenSource(source(audio.url), false)
+            progressive != null -> ChosenSource(source(progressive.url), false)
+            audio != null -> ChosenSource(source(audio.url), false)
             else -> null
         }
     }
@@ -1660,24 +2173,20 @@ class PlayerActivity : AppCompatActivity() {
     private fun source(url: String): MediaSource =
         ProgressiveMediaSource.Factory(
             com.nexus.videoclient.playback.ChunkedYouTubeDataSource.Factory(
-                upstreamFactory = dataSourceFactory(),
+                upstreamFactory = dataSourceFactory(url),
                 chunkSize = 4L * 1024L * 1024L
             )
         )
             .setContinueLoadingCheckIntervalBytes(1024 * 1024)
-            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(8))
+            .setLoadErrorHandlingPolicy(smartLoadErrorPolicy())
             .createMediaSource(MediaItem.fromUri(url))
 
-    private fun dataSourceFactory(): DataSource.Factory =
-        OkHttpDataSource.Factory(httpClient)
-            .setUserAgent(YtExtractor.userAgent)
-            .setDefaultRequestProperties(
-                mapOf(
-                    "Referer" to "https://www.youtube.com/",
-                    "Origin" to "https://www.youtube.com",
-                    "Connection" to "keep-alive"
-                )
-            )
+    private fun dataSourceFactory(url: String): DataSource.Factory {
+        val (ua, headers) = YtExtractor.headersForStreamUrl(url)
+        return OkHttpDataSource.Factory(httpClient)
+            .setUserAgent(ua)
+            .setDefaultRequestProperties(headers)
+    }
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -2051,15 +2560,15 @@ class PlayerActivity : AppCompatActivity() {
 
         addSectionTitle("AUDIO TRACK (ORIGINAL DEFAULT)")
         val tracks = resolved.distinctAudioTracks
+        val currentTrack = resolved.bestOriginalAudio(selectedAudioKey)
         tracks.forEach { track ->
-            val key = track.audioTrackId.substringBefore('.').ifBlank { track.audioTrackName }
-            val active = if (selectedAudioKey == null) track.isOriginalAudio else selectedAudioKey == key
+            val active = track.trackKey == currentTrack?.trackKey
             val labelText = when {
                 track.isOriginalAudio ->
-                    "✓ Creator's original language (${track.audioTrackName.ifBlank { "Original" }})"
+                    "✓ ${track.displayAudioName}"
                 track.isDubbedAudio ->
-                    "${track.audioTrackName.ifBlank { track.audioLocale }} (Dubbed)"
-                else -> track.label
+                    "${track.displayAudioName} (Dubbed)"
+                else -> track.displayAudioName
             }
             val row = TextView(this).apply {
                 text = labelText
@@ -2074,13 +2583,60 @@ class PlayerActivity : AppCompatActivity() {
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = dp(6) }
                 setOnClickListener {
-                    selectedAudioKey = if (track.isOriginalAudio) null else key
+                    selectedAudioKey = track.trackKey
                     dialog.dismiss()
                     play()
+                    toast("Audio: ${track.displayAudioName}")
                 }
             }
             root.addView(row)
         }
+
+        // Viewer tools: SponsorBlock + Sleep Timer
+        addSectionTitle("VIEWER TOOLS")
+        val sbEnabled = LocalStore.isSponsorBlockEnabled()
+        root.addView(TextView(this).apply {
+            text = if (sbEnabled) "SponsorBlock Auto-Skip · ON" else "SponsorBlock Auto-Skip · OFF"
+            setTextColor(getColor(if (sbEnabled) R.color.nexus_black else R.color.nexus_white))
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setBackgroundResource(if (sbEnabled) R.drawable.bg_primary_button else R.drawable.bg_card)
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+            setOnClickListener {
+                val next = !LocalStore.isSponsorBlockEnabled()
+                LocalStore.setSponsorBlockEnabled(next)
+                dialog.dismiss()
+                toast(if (next) "SponsorBlock enabled" else "SponsorBlock disabled")
+            }
+        })
+
+        val sleepRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        listOf(0 to "Off", 15 to "15m", 30 to "30m", 60 to "60m").forEach { (mins, label) ->
+            val isSet = (mins == 0 && sleepStopAtMs == 0L)
+            sleepRow.addView(TextView(this).apply {
+                text = if (mins == 0) "Sleep: Off" else label
+                setTextColor(getColor(if (isSet) R.color.nexus_black else R.color.nexus_white))
+                textSize = 12f
+                setBackgroundResource(if (isSet) R.drawable.bg_primary_button else R.drawable.bg_account_pill)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { rightMargin = dp(8) }
+                setOnClickListener {
+                    sleepStopAtMs = if (mins == 0) 0L else System.currentTimeMillis() + mins * 60_000L
+                    dialog.dismiss()
+                    toast(if (mins == 0) "Sleep timer off" else "Sleep timer set: $mins min")
+                }
+            })
+        }
+        root.addView(sleepRow)
 
         val scrollWrapper = android.widget.ScrollView(this).apply {
             addView(root)
@@ -2290,28 +2846,103 @@ class PlayerActivity : AppCompatActivity() {
         runCatching { startActivity(Intent.createChooser(send, "Share video")) }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val nextId = intent.getStringExtra(EXTRA_VIDEO_ID).orEmpty()
+        val nextTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
+        if (nextId.isNotBlank() && nextId != videoId) {
+            openVideo(nextId, nextTitle)
+        } else {
+            rebindPlayerSurface()
+        }
+    }
+
+    private fun rebindPlayerSurface() {
+        if (!this::playerView.isInitialized || !this::uiPlayer.isInitialized) return
+        // Force a fresh TextureView surface after PiP / background switch -> no more frozen frames.
+        playerView.player = null
+        playerView.player = uiPlayer
+        playerView.onResume()
+        if (!isInPictureInPictureMode && !fullscreen) {
+            setPortrait16by9Height()
+        }
+    }
+
     private fun pipParams(autoEnter: Boolean): PictureInPictureParams {
         val builder = PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9))
-        if (autoEnter && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            builder.setAutoEnterEnabled(true)
+        val playing = this::player.isInitialized && player.isPlaying
+
+        val rewPi = android.app.PendingIntent.getBroadcast(
+            this, 101, Intent("com.nexus.blacktube.PIP_REWIND").setPackage(packageName),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val togglePi = android.app.PendingIntent.getBroadcast(
+            this, 102, Intent("com.nexus.blacktube.PIP_TOGGLE").setPackage(packageName),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val fwdPi = android.app.PendingIntent.getBroadcast(
+            this, 103, Intent("com.nexus.blacktube.PIP_FORWARD").setPackage(packageName),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val actions = listOf(
+            android.app.RemoteAction(
+                android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_skip_prev),
+                "Back 10s", "Back 10s", rewPi
+            ),
+            android.app.RemoteAction(
+                android.graphics.drawable.Icon.createWithResource(
+                    this,
+                    if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+                ),
+                if (playing) "Pause" else "Play",
+                if (playing) "Pause" else "Play",
+                togglePi
+            ),
+            android.app.RemoteAction(
+                android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_skip_next),
+                "Forward 10s", "Forward 10s", fwdPi
+            )
+        )
+        builder.setActions(actions)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(autoEnter && playing)
+            builder.setSeamlessResizeEnabled(true)
         }
         return builder.build()
     }
 
-    private fun setupPictureInPicture() {
+    private fun setupPictureInPicture() = updatePipParams()
+
+    private fun updatePipParams() {
         runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                setPictureInPictureParams(pipParams(autoEnter = true))
-            } else {
-                setPictureInPictureParams(pipParams(autoEnter = false))
-            }
+            val canAuto = this::player.isInitialized &&
+                player.playbackState != Player.STATE_IDLE &&
+                player.mediaItemCount > 0 &&
+                !isFinishing
+            setPictureInPictureParams(pipParams(autoEnter = canAuto))
         }
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (this::player.isInitialized && player.isPlaying && !isInPictureInPictureMode) {
-            runCatching { enterPictureInPictureMode(pipParams(autoEnter = false)) }
+        // Always try to enter PiP when the user leaves the app while a video is loaded.
+        // Works for playing and buffering states; auto-enter is kept as an additional path.
+        if (!isInPictureInPictureMode &&
+            this::player.isInitialized &&
+            player.mediaItemCount > 0 &&
+            player.playbackState != Player.STATE_IDLE &&
+            !isFinishing
+        ) {
+            val entered = runCatching {
+                enterPictureInPictureMode(pipParams(autoEnter = false))
+            }.getOrDefault(false)
+            if (!entered) {
+                // Some OEMs/gesture-nav setups only honour auto-enter.
+                runCatching { setPictureInPictureParams(pipParams(autoEnter = true)) }
+            }
         }
     }
 
@@ -2320,29 +2951,81 @@ class PlayerActivity : AppCompatActivity() {
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        PlaybackSession.isInPip = isInPictureInPictureMode
         val scroll = findViewById<View>(R.id.player_scroll)
-        scroll.visibility = if (isInPictureInPictureMode || fullscreen) View.GONE else View.VISIBLE
+
+        if (isInPictureInPictureMode) {
+            scroll.visibility = View.GONE
+            playerView.useController = false
+            playerView.hideController()
+            hudBrightnessLeft.visibility = View.GONE
+            hudVolumeRight.visibility = View.GONE
+            skipLeftOverlay.visibility = View.GONE
+            skipRightOverlay.visibility = View.GONE
+            videoContainer.layoutParams = videoContainer.layoutParams.apply {
+                width = ViewGroup.LayoutParams.MATCH_PARENT
+                height = ViewGroup.LayoutParams.MATCH_PARENT
+            }
+            videoContainer.requestLayout()
+        } else {
+            // User dismissed PiP with X / swipe (state CREATED) -> pause cleanly and finish.
+            if (lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED) {
+                if (this::player.isInitialized && player.duration > 0L) {
+                    LocalStore.savePlaybackPosition(videoId, player.currentPosition, player.duration)
+                    player.pause()
+                }
+                finish()
+                return
+            }
+            // User expanded PiP back into the app -> cleanly rebind the surface.
+            scroll.visibility = if (fullscreen) View.GONE else View.VISIBLE
+            playerView.useController = true
+            videoContainer.post { rebindPlayerSurface() }
+        }
     }
 
     override fun onStart() {
         super.onStart()
+        PlaybackSession.isPlayerForeground = true
         if (this::player.isInitialized) {
             if (!this::uiPlayer.isInitialized) uiPlayer = createUiPlayer(player)
-            playerView.player = uiPlayer
+            rebindPlayerSurface()
             updateSkipButtons()
             renderInlineQueue()
+            updatePipParams()
         }
     }
 
+    override fun onPause() {
+        PlaybackSession.isPlayerForeground = false
+        if (this::player.isInitialized && player.duration > 0L) {
+            LocalStore.savePlaybackPosition(videoId, player.currentPosition, player.duration)
+        }
+        super.onPause()
+    }
+
     override fun onStop() {
-        if (!isInPictureInPictureMode && this::playerView.isInitialized) {
+        PlaybackSession.isPlayerForeground = false
+        if (!isInPictureInPictureMode && !PlaybackSession.isInPip &&
+            this::playerView.isInitialized
+        ) {
+            playerView.onPause()
             playerView.player = null
         }
         super.onStop()
     }
 
     override fun onDestroy() {
+        PlaybackSession.isPlayerForeground = false
+        PlaybackSession.isInPip = false
         uiHandler.removeCallbacksAndMessages(null)
+        if (pipReceiverRegistered) {
+            runCatching { unregisterReceiver(pipActionReceiver) }
+            pipReceiverRegistered = false
+        }
+        if (this::player.isInitialized && player.duration > 0L) {
+            LocalStore.savePlaybackPosition(videoId, player.currentPosition, player.duration)
+        }
         runCatching { if (this::player.isInitialized) player.removeListener(playbackListener) }
         runCatching {
             castContext?.sessionManager?.removeSessionManagerListener(

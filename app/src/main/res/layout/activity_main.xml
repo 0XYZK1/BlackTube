@@ -173,7 +173,6 @@
                     android:visibility="gone" />
             </LinearLayout>
 
-            <!-- Sortierter Profil- & Bibliotheks-Bereich -->
             <ScrollView
                 android:id="@+id/library_panel"
                 android:layout_width="match_parent"
@@ -191,18 +190,19 @@
                     android:paddingEnd="16dp"
                     android:paddingBottom="28dp">
 
+                    <!-- Compact profile header -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:background="@drawable/bg_card"
                         android:gravity="center_vertical"
                         android:orientation="horizontal"
-                        android:padding="16dp">
+                        android:padding="14dp">
 
                         <ImageView
                             android:id="@+id/profile_avatar_large"
-                            android:layout_width="54dp"
-                            android:layout_height="54dp"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
                             android:background="@drawable/bg_avatar_circle"
                             android:clipToOutline="true"
                             android:contentDescription="@null"
@@ -211,7 +211,7 @@
                         <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="14dp"
+                            android:layout_marginStart="12dp"
                             android:layout_weight="1"
                             android:orientation="vertical">
 
@@ -219,9 +219,9 @@
                                 android:id="@+id/profile_name"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:text="Your profile"
+                                android:text="Profile"
                                 android:textColor="@color/nexus_white"
-                                android:textSize="16sp"
+                                android:textSize="15.5sp"
                                 android:textStyle="bold" />
 
                             <TextView
@@ -229,9 +229,10 @@
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="2dp"
-                                android:text="Synced"
-                                android:textColor="@color/nexus_text_muted"
-                                android:textSize="12sp" />
+                                android:letterSpacing="0.08"
+                                android:text="SYNCED"
+                                android:textColor="@color/nexus_text_dim"
+                                android:textSize="10.5sp" />
                         </LinearLayout>
 
                         <TextView
@@ -241,34 +242,24 @@
                             android:background="@drawable/bg_account_pill"
                             android:clickable="true"
                             android:focusable="true"
-                            android:paddingStart="14dp"
-                            android:paddingTop="8dp"
-                            android:paddingEnd="14dp"
-                            android:paddingBottom="8dp"
+                            android:paddingStart="13dp"
+                            android:paddingTop="7dp"
+                            android:paddingEnd="13dp"
+                            android:paddingBottom="7dp"
                             android:text="Sign in"
                             android:textColor="@color/nexus_white"
-                            android:textSize="12sp"
+                            android:textSize="11.5sp"
                             android:textStyle="bold" />
                     </LinearLayout>
 
-                    <!-- Local Watch Statistics Card -->
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="20dp"
-                        android:layout_marginBottom="8dp"
-                        android:letterSpacing="0.12"
-                        android:text="YOUR WATCH STATS"
-                        android:textColor="@color/nexus_text_dim"
-                        android:textSize="11.5sp"
-                        android:textStyle="bold" />
-
+                    <!-- Compact stats bar -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
                         android:background="@drawable/bg_card"
                         android:orientation="horizontal"
-                        android:padding="14dp">
+                        android:padding="12dp">
 
                         <LinearLayout
                             android:layout_width="0dp"
@@ -283,21 +274,22 @@
                                 android:layout_height="wrap_content"
                                 android:text="0m"
                                 android:textColor="@color/nexus_white"
-                                android:textSize="17sp"
+                                android:textSize="16sp"
                                 android:textStyle="bold" />
 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="2dp"
-                                android:text="Watch Time"
+                                android:letterSpacing="0.08"
+                                android:text="WATCH TIME"
                                 android:textColor="@color/nexus_text_dim"
-                                android:textSize="11sp" />
+                                android:textSize="9.5sp" />
                         </LinearLayout>
 
                         <View
                             android:layout_width="1dp"
-                            android:layout_height="28dp"
+                            android:layout_height="24dp"
                             android:layout_gravity="center_vertical"
                             android:background="@color/nexus_line" />
 
@@ -314,21 +306,22 @@
                                 android:layout_height="wrap_content"
                                 android:text="0"
                                 android:textColor="@color/nexus_white"
-                                android:textSize="17sp"
+                                android:textSize="16sp"
                                 android:textStyle="bold" />
 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="2dp"
-                                android:text="Videos"
+                                android:letterSpacing="0.08"
+                                android:text="VIDEOS"
                                 android:textColor="@color/nexus_text_dim"
-                                android:textSize="11sp" />
+                                android:textSize="9.5sp" />
                         </LinearLayout>
 
                         <View
                             android:layout_width="1dp"
-                            android:layout_height="28dp"
+                            android:layout_height="24dp"
                             android:layout_gravity="center_vertical"
                             android:background="@color/nexus_line" />
 
@@ -345,23 +338,25 @@
                                 android:layout_height="wrap_content"
                                 android:text="0"
                                 android:textColor="@color/nexus_white"
-                                android:textSize="17sp"
+                                android:textSize="16sp"
                                 android:textStyle="bold" />
 
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="2dp"
-                                android:text="Likes"
+                                android:letterSpacing="0.08"
+                                android:text="LIKES"
                                 android:textColor="@color/nexus_text_dim"
-                                android:textSize="11sp" />
+                                android:textSize="9.5sp" />
                         </LinearLayout>
                     </LinearLayout>
 
+                    <!-- RECENTLY WATCHED -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="22dp"
+                        android:layout_marginTop="20dp"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
 
@@ -369,10 +364,64 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:letterSpacing="0.12"
-                            android:text="YOUR PLAYLISTS"
+                            android:letterSpacing="0.14"
+                            android:text="RECENTLY WATCHED"
                             android:textColor="@color/nexus_text_dim"
-                            android:textSize="11.5sp"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/row_history_all"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:padding="4dp"
+                            android:text="History ›"
+                            android:textColor="@color/nexus_white"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/history_empty_hint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Videos you watch appear here."
+                        android:textColor="@color/nexus_text_muted"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:scrollbars="none">
+
+                        <LinearLayout
+                            android:id="@+id/history_carousel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
+
+                    <!-- PLAYLISTS -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="20dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:letterSpacing="0.14"
+                            android:text="PLAYLISTS"
+                            android:textColor="@color/nexus_text_dim"
+                            android:textSize="11sp"
                             android:textStyle="bold" />
 
                         <TextView
@@ -383,25 +432,24 @@
                             android:clickable="true"
                             android:focusable="true"
                             android:padding="4dp"
-                            android:text="View all ›"
+                            android:text="All ›"
                             android:textColor="@color/nexus_white"
-                            android:textSize="12.5sp" />
+                            android:textSize="12sp" />
                     </LinearLayout>
 
                     <TextView
                         android:id="@+id/playlists_empty_hint"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="Loading playlists…"
+                        android:layout_marginTop="6dp"
                         android:textColor="@color/nexus_text_muted"
-                        android:textSize="12.5sp"
+                        android:textSize="12sp"
                         android:visibility="gone" />
 
                     <HorizontalScrollView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
+                        android:layout_marginTop="8dp"
                         android:scrollbars="none">
 
                         <LinearLayout
@@ -411,20 +459,11 @@
                             android:orientation="horizontal" />
                     </HorizontalScrollView>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="22dp"
-                        android:layout_marginBottom="8dp"
-                        android:letterSpacing="0.12"
-                        android:text="COLLECTIONS &amp; HISTORY"
-                        android:textColor="@color/nexus_text_dim"
-                        android:textSize="11.5sp"
-                        android:textStyle="bold" />
-
+                    <!-- Minimal library -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="20dp"
                         android:background="@drawable/bg_card"
                         android:orientation="vertical">
 
@@ -441,7 +480,7 @@
                         <TextView
                             android:id="@+id/row_liked"
                             style="@style/NexusRow"
-                            android:text="Liked &amp; Favorites" />
+                            android:text="Liked Videos" />
 
                         <View
                             android:layout_width="match_parent"
@@ -451,30 +490,7 @@
                         <TextView
                             android:id="@+id/row_history"
                             style="@style/NexusRow"
-                            android:text="History" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="22dp"
-                        android:layout_marginBottom="8dp"
-                        android:letterSpacing="0.12"
-                        android:text="SMART ACCOUNT TOOLS"
-                        android:textColor="@color/nexus_text_dim"
-                        android:textSize="11.5sp"
-                        android:textStyle="bold" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:background="@drawable/bg_card"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:id="@+id/row_manage_subs"
-                            style="@style/NexusRow"
-                            android:text="Manage Subscriptions" />
+                            android:text="Full Watch History" />
 
                         <View
                             android:layout_width="match_parent"
@@ -482,19 +498,9 @@
                             android:background="@color/nexus_line" />
 
                         <TextView
-                            android:id="@+id/row_manage_likes"
+                            android:id="@+id/row_account_tools"
                             style="@style/NexusRow"
-                            android:text="Manage Liked Videos" />
-
-                        <View
-                            android:layout_width="match_parent"
-                            android:layout_height="1dp"
-                            android:background="@color/nexus_line" />
-
-                        <TextView
-                            android:id="@+id/row_sync_stats"
-                            style="@style/NexusRow"
-                            android:text="Sync Watch Stats" />
+                            android:text="Tools &amp; Preferences" />
                     </LinearLayout>
                 </LinearLayout>
             </ScrollView>

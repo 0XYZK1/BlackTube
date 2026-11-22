@@ -38,3 +38,35 @@ fun formatCount(value: Long): String {
     val text = String.format(java.util.Locale.US, "%.1f", scaled)
     return text.removeSuffix(".0") + unit
 }
+
+object SponsorBlock {
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(4, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .build()
+
+    fun segments(videoId: String): List<SponsorSegment> = try {
+        val url = "https://sponsor.ajay.app/api/skipSegments?videoID=$videoId" +
+            "&categories=%5B%22sponsor%22,%22selfpromo%22,%22interaction%22%5D"
+        val req = Request.Builder().url(url).header("Accept", "application/json").build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return emptyList()
+            val arr = org.json.JSONArray(resp.body?.string().orEmpty())
+            val out = ArrayList<SponsorSegment>(arr.length())
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val seg = o.optJSONArray("segment") ?: continue
+                val startMs = (seg.optDouble(0, -1.0) * 1000.0).toLong()
+                val endMs = (seg.optDouble(1, -1.0) * 1000.0).toLong()
+                val cat = o.optString("category", "sponsor")
+                if (startMs >= 0L && endMs > startMs + 500L) {
+                    out.add(SponsorSegment(startMs, endMs, cat))
+                }
+            }
+            out.sortedBy { it.startMs }
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+}

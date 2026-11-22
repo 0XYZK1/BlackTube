@@ -21,6 +21,9 @@ object LocalStore {
     private const val KEY_SYNCED_LIKED_COUNT = "stats_synced_liked_count"
     private const val KEY_SYNCED_WATCH_SEC = "stats_synced_watch_sec"
     private const val KEY_SYNCED_HISTORY_COUNT = "stats_synced_history_count"
+    private const val KEY_PLAYBACK_POS = "playback_positions_v1"
+    private const val KEY_SPONSORBLOCK = "pref_sponsorblock_enabled"
+    private const val KEY_LAST_STATS_SYNC = "stats_last_sync_ms"
 
     private lateinit var prefs: SharedPreferences
 
@@ -76,7 +79,73 @@ object LocalStore {
     fun getFavorites(): List<VideoItem> = getVideoList(KEY_FAVORITES)
 
     fun addHistory(item: VideoItem) = upsertVideo(KEY_HISTORY, item)
-    fun getHistory(): List<VideoItem> = getVideoList(KEY_HISTORY)
+    fun getHistory(): List<VideoItem> = getVideoList(KEY_HISTORY).map { item ->
+        val savedPct = getPlaybackPercent(item.id)
+        if (savedPct > 0) item.copy(percentWatched = savedPct) else item
+    }
+
+    fun isSponsorBlockEnabled(): Boolean = prefs.getBoolean(KEY_SPONSORBLOCK, true)
+
+    fun setSponsorBlockEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SPONSORBLOCK, enabled).apply()
+    }
+
+    fun getLastStatsSyncMs(): Long = prefs.getLong(KEY_LAST_STATS_SYNC, 0L)
+
+    fun markStatsSyncedNow() {
+        prefs.edit().putLong(KEY_LAST_STATS_SYNC, System.currentTimeMillis()).apply()
+    }
+
+    fun savePlaybackPosition(videoId: String, positionMs: Long, durationMs: Long) {
+        if (videoId.isBlank() || durationMs <= 0L) return
+        val map = loadPositionsJson()
+        val pct = ((positionMs * 100L) / durationMs).toInt().coerceIn(0, 100)
+        if (positionMs < 5_000L || pct >= 95) {
+            map.remove(videoId)
+        } else {
+            map.put(
+                videoId,
+                JSONObject()
+                    .put("pos", positionMs)
+                    .put("dur", durationMs)
+                    .put("pct", pct)
+                    .put("at", System.currentTimeMillis())
+            )
+            if (map.length() > 250) {
+                val keys = map.keys().asSequence().toList()
+                val oldest = keys.minByOrNull {
+                    map.optJSONObject(it)?.optLong("at", 0L) ?: 0L
+                }
+                if (oldest != null) map.remove(oldest)
+            }
+        }
+        prefs.edit().putString(KEY_PLAYBACK_POS, map.toString()).apply()
+    }
+
+    fun getPlaybackPosition(videoId: String): Long {
+        if (videoId.isBlank()) return 0L
+        return loadPositionsJson().optJSONObject(videoId)?.optLong("pos", 0L) ?: 0L
+    }
+
+    fun getPlaybackPercent(videoId: String): Int {
+        if (videoId.isBlank()) return 0
+        return loadPositionsJson().optJSONObject(videoId)?.optInt("pct", 0) ?: 0
+    }
+
+    fun setVideoLikeState(videoId: String, liked: Boolean, disliked: Boolean) {
+        val likes = prefs.getStringSet(KEY_LIKED_IDS, emptySet()).orEmpty().toMutableSet()
+        val dislikes = prefs.getStringSet(KEY_DISLIKED_IDS, emptySet()).orEmpty().toMutableSet()
+        if (liked) likes.add(videoId) else likes.remove(videoId)
+        if (disliked) dislikes.add(videoId) else dislikes.remove(videoId)
+        prefs.edit()
+            .putStringSet(KEY_LIKED_IDS, likes)
+            .putStringSet(KEY_DISLIKED_IDS, dislikes)
+            .apply()
+    }
+
+    private fun loadPositionsJson(): JSONObject = runCatching {
+        JSONObject(prefs.getString(KEY_PLAYBACK_POS, "{}").orEmpty())
+    }.getOrDefault(JSONObject())
 
     fun hideVideo(videoId: String) {
         val set = getHiddenIds().toMutableSet()

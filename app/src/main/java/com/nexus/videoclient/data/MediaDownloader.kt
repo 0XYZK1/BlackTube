@@ -260,9 +260,16 @@ object MediaDownloader {
         toPercent: Int,
         onProgress: (Int) -> Unit
     ) {
+        val (ua, extraHeaders) = YtExtractor.headersForStreamUrl(url)
+        fun Request.Builder.applyStreamHeaders(): Request.Builder {
+            header("User-Agent", ua)
+            extraHeaders.forEach { (k, v) -> header(k, v) }
+            return this
+        }
+
         val probeReq = Request.Builder()
             .url(url)
-            .header("User-Agent", YtExtractor.userAgent)
+            .applyStreamHeaders()
             .header("Range", "bytes=0-1")
             .build()
 
@@ -285,7 +292,7 @@ object MediaDownloader {
                     val end = minOf(downloaded + chunkSize - 1, totalBytes - 1)
                     val req = Request.Builder()
                         .url(url)
-                        .header("User-Agent", YtExtractor.userAgent)
+                        .applyStreamHeaders()
                         .header("Range", "bytes=$downloaded-$end")
                         .build()
                     client.newCall(req).execute().use { resp ->
@@ -311,7 +318,7 @@ object MediaDownloader {
             } else {
                 val req = Request.Builder()
                     .url(url)
-                    .header("User-Agent", YtExtractor.userAgent)
+                    .applyStreamHeaders()
                     .build()
                 client.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")

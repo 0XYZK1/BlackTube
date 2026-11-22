@@ -62,6 +62,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var profileAuthButton: TextView
     private lateinit var playlistsCarousel: LinearLayout
     private lateinit var playlistsEmptyHint: TextView
+    private lateinit var historyCarousel: LinearLayout
+    private lateinit var historyEmptyHint: TextView
 
     private lateinit var searchOverlay: View
     private lateinit var searchInput: EditText
@@ -103,6 +105,8 @@ class MainActivity : AppCompatActivity() {
         profileAuthButton = findViewById(R.id.btn_profile_auth)
         playlistsCarousel = findViewById(R.id.playlists_carousel)
         playlistsEmptyHint = findViewById(R.id.playlists_empty_hint)
+        historyCarousel = findViewById(R.id.history_carousel)
+        historyEmptyHint = findViewById(R.id.history_empty_hint)
 
         searchOverlay = findViewById(R.id.search_overlay)
         searchInput = findViewById(R.id.search_input)
@@ -164,15 +168,11 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.row_history).setOnClickListener {
             openBrowse("FEhistory", "History")
         }
-
-        findViewById<View>(R.id.row_manage_subs).setOnClickListener {
-            showBulkUnsubscribeSheet()
+        findViewById<View>(R.id.row_history_all).setOnClickListener {
+            openBrowse("FEhistory", "History")
         }
-        findViewById<View>(R.id.row_manage_likes).setOnClickListener {
-            showBulkUnlikeSheet()
-        }
-        findViewById<View>(R.id.row_sync_stats).setOnClickListener {
-            syncStatsFromYouTube(showToast = true)
+        findViewById<View>(R.id.row_account_tools).setOnClickListener {
+            showAccountToolsSheet()
         }
 
         profileAuthButton.setOnClickListener {
@@ -892,18 +892,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshProfileDashboard() {
         val loggedIn = Session.isLoggedIn
-        if (loggedIn && !statsSyncedThisSession) syncStatsFromYouTube(false)
+        val sixHoursMs = 6L * 60L * 60L * 1000L
+        if (loggedIn && !statsSyncedThisSession &&
+            System.currentTimeMillis() - LocalStore.getLastStatsSyncMs() > sixHoursMs
+        ) {
+            syncStatsFromYouTube(false)
+        }
+
         profileNameView.text = if (loggedIn) {
             Session.accountName ?: "YouTube Account"
         } else {
-            "Local profile (not signed in)"
+            "Guest Mode"
         }
         profileStatusView.text = if (loggedIn) {
-            "Synced · v${appVersion()} · Original audio active"
+            "SYNCED · v${appVersion()}"
         } else {
-            "Local library active · v${appVersion()}"
+            "LOCAL · v${appVersion()}"
         }
-        profileAuthButton.text = if (loggedIn) "Sign out" else "Sign in with Google"
+        profileAuthButton.text = if (loggedIn) "Sign out" else "Sign in"
 
         val avatarUrl = Session.accountAvatar
         if (loggedIn && !avatarUrl.isNullOrBlank()) {
@@ -917,7 +923,121 @@ class MainActivity : AppCompatActivity() {
         }
 
         refreshWatchStatsUi()
+        loadRecentHistoryIntoDashboard()
         loadUserPlaylistsIntoDashboard()
+    }
+
+    private fun loadRecentHistoryIntoDashboard() {
+        historyCarousel.removeAllViews()
+        val localQuick = LocalStore.getHistory().take(12)
+        if (localQuick.isNotEmpty()) {
+            historyEmptyHint.visibility = View.GONE
+            renderHistoryCards(localQuick)
+        } else {
+            historyEmptyHint.text = "Loading recent videos…"
+            historyEmptyHint.visibility = View.VISIBLE
+        }
+
+        lifecycleScope.launch {
+            val recent = withContext(Dispatchers.IO) {
+                runCatching { InnerTube.recentHistory(15) }.getOrDefault(localQuick)
+            }
+            if (isDestroyed) return@launch
+            historyCarousel.removeAllViews()
+            if (recent.isEmpty()) {
+                historyEmptyHint.text = "Videos you watch appear here."
+                historyEmptyHint.visibility = View.VISIBLE
+            } else {
+                historyEmptyHint.visibility = View.GONE
+                renderHistoryCards(recent)
+            }
+        }
+    }
+
+    private fun renderHistoryCards(items: List<VideoItem>) {
+        val inflater = LayoutInflater.from(this)
+        items.forEach { vid ->
+            val card = inflater.inflate(R.layout.item_history_chip, historyCarousel, false)
+            val thumb = card.findViewById<ImageView>(R.id.hist_thumb)
+            if (vid.thumbnail.isNotBlank()) {
+                thumb.load(vid.thumbnail) { crossfade(120) }
+            }
+            val dur = card.findViewById<TextView>(R.id.hist_duration)
+            dur.text = vid.duration
+            dur.visibility = if (vid.duration.isBlank()) View.GONE else View.VISIBLE
+
+            val bar = card.findViewById<ProgressBar>(R.id.hist_progress)
+            val pct = maxOf(vid.percentWatched, LocalStore.getPlaybackPercent(vid.id))
+            bar.visibility = if (pct > 0) View.VISIBLE else View.GONE
+            bar.progress = pct
+
+            card.findViewById<TextView>(R.id.hist_title).text = vid.title
+            card.findViewById<TextView>(R.id.hist_channel).text = vid.channel
+            card.setOnClickListener { openItem(vid) }
+            card.setOnLongClickListener {
+                showVideoOptionsSheet(this, lifecycleScope, vid)
+                true
+            }
+            historyCarousel.addView(card)
+        }
+    }
+
+    private fun showAccountToolsSheet() {
+        val dialog = BottomSheetDialog(this, R.style.Theme_Nexus_BottomSheet)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_bottom_sheet)
+            setPadding(dp(18), dp(14), dp(18), dp(26))
+        }
+        root.addView(View(this).apply {
+            setBackgroundResource(R.drawable.bg_account_pill)
+            layoutParams = LinearLayout.LayoutParams(dp(36), dp(3)).apply {
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                bottomMargin = dp(14)
+            }
+        })
+        root.addView(TextView(this).apply {
+            text = "TOOLS & PREFERENCES"
+            letterSpacing = 0.14f
+            setTextColor(getColor(R.color.nexus_white))
+            textSize = 12.5f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(2), 0, dp(2), dp(10))
+        })
+
+        fun addTool(label: String, highlight: Boolean = false, onClick: () -> Unit) {
+            root.addView(TextView(this).apply {
+                text = label
+                setTextColor(getColor(if (highlight) R.color.nexus_black else R.color.nexus_white))
+                textSize = 13.5f
+                setTypeface(
+                    typeface,
+                    if (highlight) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL
+                )
+                setBackgroundResource(if (highlight) R.drawable.bg_primary_button else R.drawable.bg_card)
+                setPadding(dp(14), dp(13), dp(14), dp(13))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(8) }
+                setOnClickListener {
+                    dialog.dismiss()
+                    onClick()
+                }
+            })
+        }
+
+        val sbOn = LocalStore.isSponsorBlockEnabled()
+        addTool(if (sbOn) "SponsorBlock Auto-Skip · ON" else "SponsorBlock Auto-Skip · OFF", sbOn) {
+            LocalStore.setSponsorBlockEnabled(!sbOn)
+            toast(if (!sbOn) "SponsorBlock enabled" else "SponsorBlock disabled")
+        }
+        addTool("Sync Watch Stats from YouTube") { syncStatsFromYouTube(showToast = true) }
+        addTool("Manage Subscriptions (Bulk)") { showBulkUnsubscribeSheet() }
+        addTool("Manage Liked Videos (Bulk)") { showBulkUnlikeSheet() }
+
+        dialog.setContentView(root)
+        dialog.show()
     }
 
     private fun refreshWatchStatsUi() {
@@ -944,6 +1064,7 @@ class MainActivity : AppCompatActivity() {
                 runCatching { InnerTube.syncAccountWatchStats() }
             }
             statsSyncedThisSession = true
+            LocalStore.markStatsSyncedNow()
             refreshWatchStatsUi()
             if (showToast) toast("Stats updated from YouTube")
         }

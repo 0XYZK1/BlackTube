@@ -61,7 +61,9 @@ data class WatchInfo(
     val channelId: String = "",
     val subscribers: String = "",
     val channelAvatar: String = "",
-    val isSubscribed: Boolean = false
+    val isSubscribed: Boolean = false,
+    val isLiked: Boolean = false,
+    val isDisliked: Boolean = false
 )
 
 data class WatchPage(
@@ -73,11 +75,25 @@ data class WatchPage(
 )
 
 data class Comment(
+    val id: String = "",
     val author: String,
     val avatar: String,
     val text: String,
     val published: String,
-    val likes: String
+    val likes: String,
+    val likesWhenLiked: String = "",
+    val isLiked: Boolean = false,
+    val isDisliked: Boolean = false,
+    val likeAction: String = "",
+    val unlikeAction: String = "",
+    val dislikeAction: String = "",
+    val undislikeAction: String = ""
+)
+
+data class SponsorSegment(
+    val startMs: Long,
+    val endMs: Long,
+    val category: String
 )
 
 data class CommentPage(

@@ -1,5 +1,6 @@
 package com.nexus.videoclient.data
 
+import android.net.Uri
 import okhttp3.OkHttpClient
 import okhttp3.Request as HttpRequest
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -28,7 +29,25 @@ data class StreamChoice(
     val audioLocale: String = "",
     val isOriginalAudio: Boolean = true,
     val isDubbedAudio: Boolean = false
-)
+) {
+    val trackKey: String
+        get() = when {
+            audioTrackId.isNotBlank() -> audioTrackId
+            audioTrackName.isNotBlank() -> "$audioTrackName|$isOriginalAudio|$isDubbedAudio"
+            audioLocale.isNotBlank() -> "$audioLocale|$isOriginalAudio|$isDubbedAudio"
+            else -> "default"
+        }
+
+    val displayAudioName: String
+        get() {
+            val base = audioTrackName.ifBlank { audioLocale.uppercase().ifBlank { "Default" } }
+            return when {
+                isOriginalAudio && !base.contains("original", true) -> "$base (Original)"
+                isDubbedAudio && !base.contains("dub", true) -> "$base (Auto-Dub)"
+                else -> base
+            }
+        }
+}
 
 data class Resolved(
     val title: String,
@@ -52,16 +71,10 @@ data class Resolved(
             .sortedWith(
                 compareByDescending<StreamChoice> { it.isOriginalAudio }
                     .thenBy { it.isDubbedAudio }
-                    .thenByDescending { it.mime == "audio/mp4" }
+                    .thenByDescending { it.mime.contains("mp4") }
                     .thenByDescending { it.bitrate }
             )
-            .distinctBy {
-                when {
-                    it.audioTrackId.isNotBlank() -> it.audioTrackId.substringBefore('.')
-                    it.audioTrackName.isNotBlank() -> it.audioTrackName
-                    else -> "default"
-                }
-            }
+            .distinctBy { it.trackKey }
 
     fun bestProgressive(maxHeight: Int): StreamChoice? =
         progressive.filter { it.height in 1..maxHeight }.maxByOrNull { it.height }
@@ -74,24 +87,24 @@ data class Resolved(
     fun bestOriginalAudio(preferredTrackKey: String? = null): StreamChoice? {
         if (audio.isEmpty()) return null
 
-        val nonDubbed = audio.filterNot { it.isDubbedAudio }
-        val pool = nonDubbed.ifEmpty { audio }
-
+        // If the user picked a track manually, always use exactly that track.
         if (!preferredTrackKey.isNullOrBlank()) {
-            val match = pool.filter {
-                it.audioTrackId.startsWith(preferredTrackKey) ||
-                    it.audioTrackName.equals(preferredTrackKey, ignoreCase = true)
-            }.sortedWith(
-                compareByDescending<StreamChoice> { it.mime == "audio/mp4" }
-                    .thenByDescending { it.bitrate }
-            ).firstOrNull()
+            val match = audio.filter { it.trackKey == preferredTrackKey }
+                .sortedWith(
+                    compareByDescending<StreamChoice> { it.mime.contains("mp4") }
+                        .thenByDescending { it.bitrate }
+                )
+                .firstOrNull()
             if (match != null) return match
         }
+
+        val nonDubbed = audio.filterNot { it.isDubbedAudio }
+        val pool = nonDubbed.ifEmpty { audio }
 
         return pool.sortedWith(
             compareByDescending<StreamChoice> { it.isOriginalAudio }
                 .thenBy { it.isDubbedAudio }
-                .thenByDescending { it.mime == "audio/mp4" }
+                .thenByDescending { it.mime.contains("mp4") }
                 .thenByDescending { it.bitrate }
         ).firstOrNull()
     }
@@ -100,14 +113,17 @@ data class Resolved(
 object YtExtractor {
 
     private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+
+    private const val ANDROID_VR_UA =
+        "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
 
     @Volatile
     private var ready = false
 
     private data class Cached(val value: Resolved, val at: Long)
     private val cache = java.util.concurrent.ConcurrentHashMap<String, Cached>()
-    private const val CACHE_TTL_MS = 20 * 60 * 1000L
+    private const val CACHE_TTL_MS = 18 * 60 * 1000L
 
     fun init() {
         if (ready) return
@@ -130,6 +146,27 @@ object YtExtractor {
         val resolved = resolveFresh(videoId)
         cache[videoId] = Cached(resolved, System.currentTimeMillis())
         return resolved
+    }
+
+    /**
+     * Returns the correct user-agent and headers for each googlevideo.com URL.
+     * Wrong browser headers (Origin/Referer) on ANDROID_VR URLs cause an immediate HTTP 403.
+     */
+    fun headersForStreamUrl(url: String): Pair<String, Map<String, String>> {
+        val clientParam = runCatching { Uri.parse(url).getQueryParameter("c") }.getOrNull().orEmpty()
+        return when {
+            clientParam.startsWith("ANDROID_VR", ignoreCase = true) ->
+                ANDROID_VR_UA to mapOf("Connection" to "keep-alive")
+            clientParam.startsWith("ANDROID", ignoreCase = true) ||
+                clientParam.startsWith("IOS", ignoreCase = true) ->
+                "Dalvik/2.1.0 (Linux; U; Android 14)" to mapOf("Connection" to "keep-alive")
+            else ->
+                UA to mapOf(
+                    "Referer" to "https://www.youtube.com/",
+                    "Origin" to "https://www.youtube.com",
+                    "Connection" to "keep-alive"
+                )
+        }
     }
 
     private fun resolveFresh(videoId: String): Resolved {
@@ -166,18 +203,20 @@ object YtExtractor {
         }
 
         val rawAudio = info.audioStreams
-        // auto-dubs kommen als eigene spur rein, die fliegen hier raus
         val hasExplicitOriginal = rawAudio.any { isExplicitOriginalTrack(it) }
 
+        // Keep ALL audio tracks so the user can switch between original and auto-dub at any time.
         val audio = rawAudio.mapNotNull { stream ->
             val format = stream.format ?: return@mapNotNull null
             val trackId = stream.audioTrackId.orEmpty()
             val trackName = stream.audioTrackName.orEmpty()
             val locale = stream.audioLocale?.toLanguageTag().orEmpty()
-            val dubbed = isDubbedTrack(stream, hasExplicitOriginal)
-            val original = isExplicitOriginalTrack(stream) || (!dubbed && !hasExplicitOriginal)
+            val explicitOriginal = isExplicitOriginalTrack(stream)
+            val dubbed = !explicitOriginal && isDubbedTrack(stream, hasExplicitOriginal)
+            val original = explicitOriginal || (!dubbed && !hasExplicitOriginal)
 
             val trackBadge = when {
+                original && trackName.isNotBlank() -> "$trackName (Original)"
                 original -> "Original"
                 trackName.isNotBlank() -> trackName
                 locale.isNotBlank() -> locale
@@ -201,15 +240,7 @@ object YtExtractor {
             )
         }
 
-        val uploaderAvatar = info.uploaderAvatars
-            .maxByOrNull { it.height }?.url.orEmpty()
-
-        val hardFilteredAudio = if (hasExplicitOriginal) {
-            audio.filter { it.isOriginalAudio && !it.isDubbedAudio }
-                .ifEmpty { audio.filterNot { it.isDubbedAudio } }
-        } else {
-            audio.filterNot { it.isDubbedAudio }.ifEmpty { audio }
-        }
+        val uploaderAvatar = info.uploaderAvatars.maxByOrNull { it.height }?.url.orEmpty()
 
         return Resolved(
             title = info.name.orEmpty(),
@@ -219,7 +250,7 @@ object YtExtractor {
             durationSec = info.duration,
             progressive = progressive,
             videoOnly = videoOnly,
-            audio = hardFilteredAudio,
+            audio = audio,
             hlsUrl = info.hlsUrl.orEmpty()
         )
     }
@@ -229,7 +260,6 @@ object YtExtractor {
         val name = stream.audioTrackName.orEmpty().lowercase()
         val id = stream.audioTrackId.orEmpty().lowercase()
         return name.contains("original") ||
-            name.contains("(original)") ||
             name.contains("원본") ||
             name.contains("オリジナル") ||
             id.endsWith(".4") ||
@@ -253,8 +283,7 @@ object YtExtractor {
         ) {
             return true
         }
-        if (videoHasExplicitOriginal && !isExplicitOriginalTrack(stream)) return true
-        return false
+        return videoHasExplicitOriginal && !isExplicitOriginalTrack(stream)
     }
 
     val userAgent: String get() = UA
@@ -265,8 +294,8 @@ object YtExtractor {
     private class DownloaderImpl : Downloader() {
 
         private val client: OkHttpClient = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(22, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
 
@@ -282,11 +311,16 @@ object YtExtractor {
             }
 
             var hasUserAgent = false
+            var hasCookie = false
             request.headers().forEach { (name, values) ->
                 if (name.equals("User-Agent", ignoreCase = true)) hasUserAgent = true
+                if (name.equals("Cookie", ignoreCase = true)) hasCookie = true
                 values.forEach { value -> builder.addHeader(name, value) }
             }
             if (!hasUserAgent) builder.header("User-Agent", UA)
+            if (!hasCookie && request.url().contains("youtube.com", ignoreCase = true)) {
+                builder.header("Cookie", "SOCS=CAI")
+            }
 
             client.newCall(builder.build()).execute().use { response ->
                 return Response(

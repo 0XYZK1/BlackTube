@@ -11,11 +11,11 @@ import java.util.concurrent.TimeUnit
 
 object InnerTube {
 
-    private const val CLIENT_VERSION = "2.20260210.00.00"
+    private const val CLIENT_VERSION = "2.20261118.00.00"
     private const val BASE = "https://www.youtube.com/youtubei/v1"
 
     private const val UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
@@ -23,6 +23,42 @@ object InnerTube {
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    @Volatile
+    private var visitorData: String = ""
+
+    private fun ensureVisitorData(): String {
+        if (visitorData.isNotBlank()) return visitorData
+        runCatching {
+            val req = Request.Builder()
+                .url("https://www.youtube.com/sw.js_data")
+                .header("User-Agent", UA)
+                .header("Cookie", "SOCS=CAI")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                val raw = resp.body?.string().orEmpty()
+                val match = Regex("\"(Cg[a-zA-Z0-9_%-]{16,})\"").find(raw)
+                val found = match?.groupValues?.getOrNull(1).orEmpty()
+                if (found.isNotBlank()) visitorData = found
+            }
+        }
+        return visitorData
+    }
+
+    private fun contextObject(): JSONObject {
+        val clientObject = JSONObject()
+            .put("clientName", "WEB")
+            .put("clientVersion", CLIENT_VERSION)
+            .put("hl", "en")
+            .put("gl", "US")
+            .put("originalUrl", "https://www.youtube.com/")
+            .put("platform", "DESKTOP")
+            .put("userAgent", UA)
+        if (visitorData.isNotBlank()) {
+            clientObject.put("visitorData", visitorData)
+        }
+        return JSONObject().put("client", clientObject)
+    }
 
     private data class Cached(val page: Page, val at: Long)
     private val cache = java.util.concurrent.ConcurrentHashMap<String, Cached>()
@@ -116,6 +152,8 @@ object InnerTube {
         var subscribers = ""
         var channelAvatar = ""
         var isSubscribed = false
+        var isLiked = false
+        var isDisliked = false
 
         walk(root) { obj ->
             if (commentParams.isNullOrBlank() && obj.has("createCommentParams")) {
@@ -166,6 +204,13 @@ object InnerTube {
                 if (sub.has("subscribed")) isSubscribed = sub.optBoolean("subscribed", false)
             }
 
+            obj.optJSONObject("likeStatusEntity")?.let { entity ->
+                when (entity.optString("likeStatus")) {
+                    "LIKE" -> { isLiked = true; isDisliked = false }
+                    "DISLIKE" -> { isLiked = false; isDisliked = true }
+                    "INDIFFERENT" -> { isLiked = false; isDisliked = false }
+                }
+            }
             obj.optJSONObject("likeCountEntity")?.let { entity ->
                 val value = text(entity.opt("likeCountIfNotLiked"))
                     .ifBlank { text(entity.opt("likeCountIfLiked")) }
@@ -209,7 +254,9 @@ object InnerTube {
                 channelId = channelId,
                 subscribers = subscribers,
                 channelAvatar = channelAvatar,
-                isSubscribed = isSubscribed
+                isSubscribed = isSubscribed,
+                isLiked = isLiked,
+                isDisliked = isDisliked
             ),
             commentToken = commentToken,
             commentCount = commentCount,
@@ -226,42 +273,112 @@ object InnerTube {
         var next: String? = null
         var createParams: String? = null
 
+        val surfaceByKey = HashMap<String, JSONObject>()
+        val stateByKey = HashMap<String, JSONObject>()
+        val viewModelByCommentKey = HashMap<String, JSONObject>()
+
         walk(root) { obj ->
             if (createParams.isNullOrBlank() && obj.has("createCommentParams")) {
                 val value = obj.optString("createCommentParams")
                 if (value.isNotBlank()) createParams = value
             }
+            obj.optJSONObject("engagementToolbarSurfaceEntityPayload")?.let { p ->
+                val k = p.optString("key")
+                if (k.isNotBlank()) surfaceByKey[k] = p
+            }
+            obj.optJSONObject("engagementToolbarStateEntityPayload")?.let { p ->
+                val k = p.optString("key")
+                if (k.isNotBlank()) stateByKey[k] = p
+            }
+            obj.optJSONObject("commentViewModel")?.let { vm ->
+                val ck = vm.optString("commentKey")
+                if (ck.isNotBlank()) viewModelByCommentKey[ck] = vm
+            }
+        }
+
+        fun extractAction(parent: JSONObject?, field: String): String =
+            parent?.optJSONObject(field)
+                ?.optJSONObject("innertubeCommand")
+                ?.optJSONObject("performCommentActionEndpoint")
+                ?.optString("action").orEmpty()
+
+        walk(root) { obj ->
             obj.optJSONObject("commentEntityPayload")?.let { payload ->
                 val props = payload.optJSONObject("properties") ?: JSONObject()
                 val author = payload.optJSONObject("author") ?: JSONObject()
                 val toolbar = payload.optJSONObject("toolbar") ?: JSONObject()
-                val content = props.optJSONObject("content")
-                    ?.optString("content").orEmpty()
+                val content = props.optJSONObject("content")?.optString("content").orEmpty()
                 if (content.isNotBlank()) {
+                    val key = payload.optString("key")
+                    val vm = viewModelByCommentKey[key]
+                    val surface = surfaceByKey[vm?.optString("toolbarSurfaceKey").orEmpty()]
+                        ?: surfaceByKey[props.optString("toolbarSurfaceKey")]
+                    val state = stateByKey[vm?.optString("toolbarStateKey").orEmpty()]
+                        ?: stateByKey[props.optString("toolbarStateKey")]
+                    val likeState = state?.optString("likeState").orEmpty()
+                    val cid = props.optString("commentId").ifBlank { key }
+
                     val comment = Comment(
+                        id = cid,
                         author = author.optString("displayName"),
-                        avatar = author.optString("avatarThumbnailUrl"),
+                        avatar = fastAvatarUrl(author.optString("avatarThumbnailUrl")),
                         text = content,
                         published = props.optString("publishedTime"),
-                        likes = toolbar.optString("likeCountNotliked")
+                        likes = toolbar.optString("likeCountNotliked"),
+                        likesWhenLiked = toolbar.optString("likeCountLiked"),
+                        isLiked = likeState == "TOOLBAR_LIKE_STATE_LIKED",
+                        isDisliked = likeState == "TOOLBAR_LIKE_STATE_DISLIKED",
+                        likeAction = extractAction(surface, "likeCommand"),
+                        unlikeAction = extractAction(surface, "unlikeCommand"),
+                        dislikeAction = extractAction(surface, "dislikeCommand"),
+                        undislikeAction = extractAction(surface, "undislikeCommand")
                     )
-                    items.putIfAbsent(comment.author + "|" + comment.text, comment)
+                    items.putIfAbsent(
+                        cid.ifBlank { comment.author + "|" + comment.text },
+                        comment
+                    )
                 }
             }
             obj.optJSONObject("commentRenderer")?.let { legacy ->
                 val content = runs(legacy.optJSONObject("contentText") ?: JSONObject())
                 if (content.isNotBlank()) {
+                    val buttons = legacy.optJSONObject("actionButtons")
+                        ?.optJSONObject("commentActionButtonsRenderer")
+                    val likeToggle = buttons?.optJSONObject("likeButton")
+                        ?.optJSONObject("toggleButtonRenderer")
+                    val dislikeToggle = buttons?.optJSONObject("dislikeButton")
+                        ?.optJSONObject("toggleButtonRenderer")
+
                     val comment = Comment(
+                        id = legacy.optString("commentId"),
                         author = runs(legacy.optJSONObject("authorText") ?: JSONObject()),
-                        avatar = bestThumbArray(
-                            legacy.optJSONObject("authorThumbnail")
-                                ?.optJSONArray("thumbnails")
-                        ).orEmpty(),
+                        avatar = fastAvatarUrl(
+                            bestThumbArray(
+                                legacy.optJSONObject("authorThumbnail")?.optJSONArray("thumbnails")
+                            ).orEmpty()
+                        ),
                         text = content,
                         published = text(legacy.opt("publishedTimeText")),
-                        likes = text(legacy.opt("voteCount"))
+                        likes = text(legacy.opt("voteCount")),
+                        isLiked = likeToggle?.optBoolean("isToggled", false) == true,
+                        isDisliked = dislikeToggle?.optBoolean("isToggled", false) == true,
+                        likeAction = likeToggle?.optJSONObject("defaultServiceEndpoint")
+                            ?.optJSONObject("performCommentActionEndpoint")
+                            ?.optString("action").orEmpty(),
+                        unlikeAction = likeToggle?.optJSONObject("toggledServiceEndpoint")
+                            ?.optJSONObject("performCommentActionEndpoint")
+                            ?.optString("action").orEmpty(),
+                        dislikeAction = dislikeToggle?.optJSONObject("defaultServiceEndpoint")
+                            ?.optJSONObject("performCommentActionEndpoint")
+                            ?.optString("action").orEmpty(),
+                        undislikeAction = dislikeToggle?.optJSONObject("toggledServiceEndpoint")
+                            ?.optJSONObject("performCommentActionEndpoint")
+                            ?.optString("action").orEmpty()
                     )
-                    items.putIfAbsent(comment.author + "|" + comment.text, comment)
+                    items.putIfAbsent(
+                        comment.id.ifBlank { comment.author + "|" + comment.text },
+                        comment
+                    )
                 }
             }
             if (next.isNullOrBlank()) {
@@ -767,9 +884,108 @@ object InnerTube {
             val payload = JSONObject()
                 .put("context", contextObject())
                 .put("target", JSONObject().put("videoId", videoId))
-            post("like/removelike", payload.toString())
+            post("like/removelike", payload.toString(), allowAnonFallback = false)
             true
         }.getOrDefault(false)
+    }
+
+    fun likeVideo(videoId: String): Boolean {
+        if (!Session.isLoggedIn || videoId.isBlank()) return false
+        return runCatching {
+            val payload = JSONObject()
+                .put("context", contextObject())
+                .put("target", JSONObject().put("videoId", videoId))
+            post("like/like", payload.toString(), allowAnonFallback = false)
+            true
+        }.getOrDefault(false)
+    }
+
+    fun dislikeVideo(videoId: String): Boolean {
+        if (!Session.isLoggedIn || videoId.isBlank()) return false
+        return runCatching {
+            val payload = JSONObject()
+                .put("context", contextObject())
+                .put("target", JSONObject().put("videoId", videoId))
+            post("like/dislike", payload.toString(), allowAnonFallback = false)
+            true
+        }.getOrDefault(false)
+    }
+
+    fun performCommentAction(actionToken: String): Boolean {
+        if (!Session.isLoggedIn || actionToken.isBlank()) return false
+        return runCatching {
+            val payload = JSONObject()
+                .put("context", contextObject())
+                .put("actions", JSONArray().put(actionToken))
+            post("comment/perform_comment_action", payload.toString(), allowAnonFallback = false)
+            true
+        }.getOrDefault(false)
+    }
+
+    fun addVideoToPlaylist(playlistId: String, videoId: String): Boolean {
+        if (!Session.isLoggedIn || playlistId.isBlank() || videoId.isBlank()) return false
+        val cleanId = playlistId.removePrefix("VL")
+        return runCatching {
+            val action = JSONObject()
+                .put("action", "ACTION_ADD_VIDEO")
+                .put("addedVideoId", videoId)
+            val payload = JSONObject()
+                .put("context", contextObject())
+                .put("playlistId", cleanId)
+                .put("actions", JSONArray().put(action))
+            post("browse/edit_playlist", payload.toString(), allowAnonFallback = false)
+            true
+        }.getOrDefault(false)
+    }
+
+    fun removeVideoFromPlaylist(playlistId: String, videoId: String): Boolean {
+        if (!Session.isLoggedIn || playlistId.isBlank() || videoId.isBlank()) return false
+        val cleanId = playlistId.removePrefix("VL")
+        return runCatching {
+            val action = JSONObject()
+                .put("action", "ACTION_REMOVE_VIDEO_BY_VIDEO_ID")
+                .put("removedVideoId", videoId)
+            val payload = JSONObject()
+                .put("context", contextObject())
+                .put("playlistId", cleanId)
+                .put("actions", JSONArray().put(action))
+            post("browse/edit_playlist", payload.toString(), allowAnonFallback = false)
+            true
+        }.getOrDefault(false)
+    }
+
+    fun createPlaylist(
+        title: String,
+        privacyStatus: String = "PRIVATE",
+        initialVideoId: String? = null
+    ): String? {
+        if (!Session.isLoggedIn || title.isBlank()) return null
+        return runCatching {
+            val payload = JSONObject()
+                .put("context", contextObject())
+                .put("title", title.trim())
+                .put("privacyStatus", privacyStatus)
+            if (!initialVideoId.isNullOrBlank()) {
+                payload.put("videoIds", JSONArray().put(initialVideoId))
+            }
+            val resp = post("playlist/create", payload.toString(), allowAnonFallback = false)
+            clearCache()
+            resp.optString("playlistId").takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
+    fun recentHistory(limit: Int = 15): List<VideoItem> {
+        val local = LocalStore.getHistory()
+        if (!Session.isLoggedIn) return local.take(limit)
+        val remote = runCatching { browse("FEhistory").items }.getOrDefault(emptyList())
+        val merged = LinkedHashMap<String, VideoItem>()
+        local.forEach { merged[it.id] = it }
+        remote.filter { !it.isPlaylist && !it.isChannel }.forEach { item ->
+            val savedPct = LocalStore.getPlaybackPercent(item.id)
+            val pct = maxOf(savedPct, item.percentWatched)
+            merged.putIfAbsent(item.id, item.copy(percentWatched = pct))
+        }
+        return merged.values.take(limit)
     }
 
     private fun body(
@@ -785,18 +1001,6 @@ object InnerTube {
         if (query != null) root.put("query", query)
         if (videoId != null) root.put("videoId", videoId)
         return root.toString()
-    }
-
-    private fun contextObject(): JSONObject {
-        val clientObject = JSONObject()
-            .put("clientName", "WEB")
-            .put("clientVersion", CLIENT_VERSION)
-            .put("hl", "en")
-            .put("gl", "US")
-            .put("originalUrl", "https://www.youtube.com/")
-            .put("platform", "DESKTOP")
-            .put("userAgent", UA)
-        return JSONObject().put("client", clientObject)
     }
 
     fun postComment(createCommentParams: String, text: String): Boolean {
@@ -831,33 +1035,74 @@ object InnerTube {
         )
     }
 
-    private fun post(endpoint: String, payload: String): JSONObject {
-        val builder = Request.Builder()
-            .url("$BASE/$endpoint?prettyPrint=false")
-            .post(payload.toRequestBody(JSON))
-            .header("Content-Type", "application/json")
-            .header("User-Agent", UA)
-            .header("Accept-Language", "en-US,en;q=0.9")
-            .header("Origin", Session.ORIGIN)
-            .header("Referer", "https://www.youtube.com/")
-            .header("X-Youtube-Client-Name", "1")
-            .header("X-Youtube-Client-Version", CLIENT_VERSION)
+    private fun post(
+        endpoint: String,
+        payload: String,
+        allowAnonFallback: Boolean = endpoint in setOf("browse", "search", "next")
+    ): JSONObject {
+        if (visitorData.isBlank() && !Session.isLoggedIn) ensureVisitorData()
 
-        if (Session.cookieHeader.isNotBlank()) {
-            builder.header("Cookie", Session.cookieHeader)
-        }
-        Session.authorizationHeader()?.let { auth ->
-            builder.header("Authorization", auth)
-            builder.header("X-Origin", Session.ORIGIN)
-            builder.header("X-Goog-AuthUser", "0")
+        fun execute(useAuth: Boolean): okhttp3.Response {
+            val builder = Request.Builder()
+                .url("$BASE/$endpoint?prettyPrint=false")
+                .post(payload.toRequestBody(JSON))
+                .header("Content-Type", "application/json")
+                .header("User-Agent", UA)
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Origin", Session.ORIGIN)
+                .header("Referer", "https://www.youtube.com/")
+                .header("X-Youtube-Client-Name", "1")
+                .header("X-Youtube-Client-Version", CLIENT_VERSION)
+
+            if (visitorData.isNotBlank()) {
+                builder.header("X-Goog-Visitor-Id", visitorData)
+            }
+
+            if (useAuth && Session.cookieHeader.isNotBlank()) {
+                builder.header("Cookie", Session.cookieHeader)
+                Session.authorizationHeader()?.let { auth ->
+                    builder.header("Authorization", auth)
+                    builder.header("X-Origin", Session.ORIGIN)
+                    builder.header("X-Goog-AuthUser", "0")
+                }
+            } else {
+                // Prevents the EU consent block in Germany for guests / fallback requests.
+                builder.header("Cookie", "SOCS=CAI")
+            }
+            return client.newCall(builder.build()).execute()
         }
 
-        client.newCall(builder.build()).execute().use { response ->
+        val tryAuth = Session.isLoggedIn
+        execute(tryAuth).use { response ->
             val text = response.body?.string().orEmpty()
-            when {
-                response.isSuccessful -> return JSONObject(text)
-                response.code == 401 -> throw IllegalStateException("Not signed in (401)")
-                response.code == 403 -> throw IllegalStateException("Access denied (403)")
+            if (response.isSuccessful) {
+                val json = JSONObject(text)
+                val vd = json.optJSONObject("responseContext")?.optString("visitorData").orEmpty()
+                if (vd.isNotBlank()) visitorData = vd
+                return json
+            }
+
+            // On 401/403 refresh cookies from the WebView once and retry.
+            if ((response.code == 401 || response.code == 403) && tryAuth) {
+                runCatching { Session.captureFromWebView() }
+                execute(true).use { retryResp ->
+                    val retryText = retryResp.body?.string().orEmpty()
+                    if (retryResp.isSuccessful) return JSONObject(retryText)
+                }
+                // For read-only endpoints fall back to a clean anonymous request.
+                if (allowAnonFallback) {
+                    visitorData = ""
+                    ensureVisitorData()
+                    execute(false).use { anonResp ->
+                        val anonText = anonResp.body?.string().orEmpty()
+                        if (anonResp.isSuccessful) return JSONObject(anonText)
+                    }
+                }
+            }
+
+            when (response.code) {
+                401 -> throw IllegalStateException("Not signed in (401)")
+                403 -> throw IllegalStateException("YouTube rejected request (403) – try refreshing login")
                 else -> throw IllegalStateException("HTTP ${response.code}")
             }
         }

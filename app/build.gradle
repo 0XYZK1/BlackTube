@@ -18,8 +18,8 @@ android {
         applicationId "com.nexus.blacktube"
         minSdk 26
         targetSdk 34
-        versionCode 21
-        versionName "2.10.1"
+        versionCode 23
+        versionName "2.11.1"
     }
 
     signingConfigs {
@@ -95,4 +95,5 @@ dependencies {
     // chromecast
     implementation 'com.google.android.gms:play-services-cast-framework:21.5.0'
     implementation 'androidx.mediarouter:mediarouter:1.7.0'
+    implementation 'androidx.media:media:1.7.0'
 }

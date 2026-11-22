@@ -9,6 +9,7 @@ import coil.memory.MemoryCache
 import com.nexus.videoclient.data.LocalStore
 import com.nexus.videoclient.data.Session
 import com.nexus.videoclient.data.YtExtractor
+import com.nexus.videoclient.playback.PlaybackSession
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -18,6 +19,7 @@ class NexusApp : Application() {
         super.onCreate()
         Session.init(this)
         LocalStore.init(this)
+        PlaybackSession.init(this)
         YtExtractor.init()
 
         val imgDispatcher = Dispatcher().apply {

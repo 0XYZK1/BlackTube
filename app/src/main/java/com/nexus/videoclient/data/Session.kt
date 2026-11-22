@@ -58,16 +58,23 @@ object Session {
         }
 
     fun authorizationHeader(): String? {
-        val sapisid = sapisid() ?: return null
-        val ts = System.currentTimeMillis() / 1000
-        return "SAPISIDHASH ${ts}_${sha1("$ts $sapisid $ORIGIN")}"
-    }
-
-    private fun sapisid(): String? {
         val map = cookieMap()
-        return map["__Secure-3PAPISID"]
-            ?: map["SAPISID"]
-            ?: map["__Secure-1PAPISID"]
+        val ts = System.currentTimeMillis() / 1000
+        val parts = ArrayList<String>(3)
+
+        val sapisid = map["SAPISID"]
+        val p1 = map["__Secure-1PAPISID"]
+        val p3 = map["__Secure-3PAPISID"]
+
+        val primary = sapisid ?: p3 ?: p1 ?: return null
+        parts.add("SAPISIDHASH ${ts}_${sha1("$ts $primary $ORIGIN")}")
+        if (!p1.isNullOrBlank()) {
+            parts.add("SAPISID1PHASH ${ts}_${sha1("$ts $p1 $ORIGIN")}")
+        }
+        if (!p3.isNullOrBlank()) {
+            parts.add("SAPISID3PHASH ${ts}_${sha1("$ts $p3 $ORIGIN")}")
+        }
+        return parts.joinToString(" ")
     }
 
     private fun cookieMap(): Map<String, String> {
